@@ -15,7 +15,17 @@ export async function registerCase(req, res) {
                 freelancer = candidates[0];
             }
         }
+        // If no match, assign to any available freelancer
+        if (!freelancer) {
+            const anyAvailable = await sql`SELECT * FROM freelancer WHERE is_available = true ORDER BY performance_score DESC, total_earnings ASC LIMIT 1`;
+            if (anyAvailable.length > 0) {
+                freelancer = anyAvailable[0];
+            }
+        }
         let freelancerId = freelancer ? freelancer.user_id : null;
+        if (!freelancerId) {
+            console.warn('No available freelancer found for case assignment. Case will be unassigned.');
+        }
         const newCase = await sql`
             INSERT INTO "case" (client_id, freelancer_id, title, description, case_summary_url, status, assigned_at, created_at, updated_at)
             VALUES (${clientId}, ${freelancerId}, ${title}, ${description}, ${caseSummaryUrl}, 'pending', ${freelancerId ? 'NOW()' : null}, NOW(), NOW())

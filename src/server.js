@@ -6,6 +6,9 @@ import rateLimiter from './middleware/rateLimiter.js';
 import freelancerRoute from './routes/freelancerRoute.js';
 import caseRoute from './routes/caseRoute.js';
 import userRoute from './routes/userRoute.js';
+import consultationRoute from './routes/consultationRoute.js';
+import documentRoute from './routes/documentRoute.js';
+import aiAssistantRoute from './routes/aiAssistantRoute.js';
 import job from './config/cron.js';
 
 dotenv.config();
@@ -38,6 +41,9 @@ app.get('/api/health', (req, res) => {
 app.use('/api/freelancers', freelancerRoute);
 app.use('/api/cases', caseRoute);
 app.use('/api/users', userRoute);
+app.use('/api', consultationRoute);
+app.use('/api/v1/documents', documentRoute);
+app.use('/api/v1/ai', aiAssistantRoute);
 
 
 initDB().then(() => {

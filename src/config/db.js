@@ -60,6 +60,66 @@ export async function initDB() {
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW()
       );`;
+      
+      // Create consultations table
+      await sql`CREATE TABLE IF NOT EXISTS consultations (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+        freelancer_id INTEGER NOT NULL REFERENCES freelancer(user_id) ON DELETE CASCADE,
+        scheduled_at TIMESTAMPTZ NOT NULL,
+        method VARCHAR(10) NOT NULL CHECK (method IN ('chat', 'video')),
+        notes TEXT,
+        room_url TEXT,
+        status VARCHAR(20) NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed', 'cancelled', 'rescheduled', 'completed')),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );`;
+      
+      // Create consultation feedback table
+      await sql`CREATE TABLE IF NOT EXISTS consultation_feedback (
+        id SERIAL PRIMARY KEY,
+        consultation_id INTEGER NOT NULL REFERENCES consultations(id) ON DELETE CASCADE,
+        rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+        comments TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );`;
+      
+      // Create documents table
+      await sql`CREATE TABLE IF NOT EXISTS documents (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+        template_id VARCHAR(50) NOT NULL,
+        template_name VARCHAR(100) NOT NULL,
+        form_data JSONB NOT NULL,
+        generated_document TEXT NOT NULL,
+        document_type VARCHAR(50) NOT NULL,
+        status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'archived', 'deleted')),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );`;
+      
+      // Create chat sessions table
+      await sql`CREATE TABLE IF NOT EXISTS chat_sessions (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+        title VARCHAR(255) NOT NULL,
+        category VARCHAR(100),
+        status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'archived', 'deleted')),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );`;
+      
+      // Create chat messages table
+      await sql`CREATE TABLE IF NOT EXISTS chat_messages (
+        id SERIAL PRIMARY KEY,
+        session_id INTEGER NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+        role VARCHAR(10) NOT NULL CHECK (role IN ('user', 'assistant')),
+        content TEXT NOT NULL,
+        tokens_used INTEGER,
+        model_used VARCHAR(100),
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );`;
+      
       console.log('Connected to the database successfully');
     } catch (error) {
       console.error('Error connecting to the database:', error);
