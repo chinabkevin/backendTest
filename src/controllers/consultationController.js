@@ -74,10 +74,10 @@ export const bookConsultation = async (req, res) => {
       ? `https://meet.jit.si/legaliq-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       : null;
     
-    // Create consultation
+    // Create consultation - store the freelancer's actual ID, not user_id
     const [consultation] = await sql`
       INSERT INTO consultations (user_id, freelancer_id, scheduled_at, method, notes, room_url, status)
-      VALUES (${user[0].id}, ${lawyerId}, ${datetime}, ${method}, ${notes}, ${roomUrl}, 'confirmed')
+      VALUES (${user[0].id}, ${freelancer[0].id}, ${datetime}, ${method}, ${notes}, ${roomUrl}, 'confirmed')
       RETURNING id, room_url, status
     `;
     
@@ -113,18 +113,36 @@ export const getMyConsultations = async (req, res) => {
     const consultations = await sql`
       SELECT 
         c.id,
-        f.name as lawyerName,
+        COALESCE(f.name, 'Unknown Lawyer') as lawyerName,
         c.scheduled_at as datetime,
         c.method,
         c.room_url as roomUrl,
         c.status,
         c.notes,
-        c.created_at
+        c.created_at,
+        c.freelancer_id,
+        f.id as freelancer_table_id,
+        f.name as freelancer_name
       FROM consultations c
-      JOIN freelancer f ON c.freelancer_id = f.user_id
+      LEFT JOIN freelancer f ON c.freelancer_id = f.id
       WHERE c.user_id = ${user[0].id}
       ORDER BY c.scheduled_at DESC
     `;
+    
+    console.log('Raw consultations data:', consultations);
+    console.log('User ID:', user[0].id);
+    console.log('Number of consultations found:', consultations.length);
+    
+    // Log each consultation for debugging
+    consultations.forEach((consultation, index) => {
+      console.log(`Consultation ${index + 1}:`, {
+        id: consultation.id,
+        lawyerName: consultation.lawyerName,
+        freelancer_id: consultation.freelancer_id,
+        freelancer_table_id: consultation.freelancer_table_id,
+        freelancer_name: consultation.freelancer_name
+      });
+    });
     
     res.json(consultations);
   } catch (error) {
