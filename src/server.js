@@ -20,10 +20,37 @@ if(process.env.NODE_ENV === 'production'){
 }
 
 // Allow CORS for frontend
-app.use(cors({
-  origin: ["http://localhost:3000", process.env.CORS_ORIGIN].filter(Boolean),
-  credentials: true
-}));
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      "http://localhost:3000", 
+      "https://private-repo-sand.vercel.app",
+      "https://legaliq.vercel.app",
+      "https://legaliq-frontend.vercel.app",
+      process.env.CORS_ORIGIN
+    ].filter(Boolean);
+    
+    // Temporary: Allow all origins in development
+    if (process.env.NODE_ENV === 'development') {
+      return callback(null, true);
+    }
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.log('CORS blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+};
+
+app.use(cors(corsOptions));
 
 app.use(rateLimiter);
 
