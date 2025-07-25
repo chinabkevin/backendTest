@@ -1,0 +1,37 @@
+Freelancer Registration Flow (Frontend)
+1. Flow Overview (from freelancer.txt):
+Landing Page → “Join as a Lawyer”
+Registration Form:
+Name, Email, Phone, Experience
+Upload credentials (ID, Bar Certificate, etc.)
+Select Areas of Legal Expertise
+Agree to Platform NDA & Guidelines
+Submit → Backend /api/users/sync (if new) → /api/freelancers/register
+Await Verification
+
+2. Step-by-Step Implementation Plan
+A. UI/UX
+Page: /auth/signup or /freelancer/register
+Form Fields:
+Name, Email, Phone, Experience (years)
+Areas of Legal Expertise (multi-select)
+Upload: ID, Bar Certificate, Additional Docs
+Checkbox: Agree to NDA & Guidelines
+Submit Button
+B. Logic
+User signs up or logs in via Supabase.
+Sync user to backend (/api/users/sync).
+Submit freelancer registration to /api/freelancers/register with all form data and the local user id.
+Show “awaiting verification” message after successful registration.
+3. Example: React/Next.js Component Structure
+A. Registration Form Component
+/frontend/src/app/auth/signup/page.tsx (or /freelancer/register/page.tsx)
+B. Key Steps in Code
+Use Supabase Auth for login/signup.
+On first login, call /api/users/sync to get local user id.
+On form submit, upload files (if needed), then call /api/freelancers/register.
+4. Example: Registration Form Skeleton (React/Next.js, TypeScript)
+Would you like:
+A full working registration page (with file upload, multi-select, NDA checkbox, etc.)?
+Or a minimal working example to get started?
+Let me know your preference, and I’ll generate the code for you!

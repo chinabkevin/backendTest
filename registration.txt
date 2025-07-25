@@ -1,0 +1,98 @@
+reference : https://nextjs.org/
+            https://tailwindcss.com/
+            https://supabase.com/docs
+
+Registration & Login Journey (Customer – LegaliQ)
+🟢 1. Entry Point
+Platform: Mobile app or website
+Screen Shown: Welcome Screen
+Buttons:
+[Log In]
+[Register]
+[Continue with Google / Apple] (optional)
+
+🧾 2. Registration Flow (New User)
+➤ Step 1: Tap "Register"
+Redirects to User Registration Screen
+➤ Step 2: Registration Form
+Fields:
+Full Name
+Email Address
+Phone Number (optional for OTP)
+Password
+Confirm Password
+Accept Terms & Privacy Policy ✅
+Buttons:
+[Register]
+[Back to Login]
+➤ Step 3: Email/Phone Verification
+Email verification link or OTP sent (optional step)
+Upon success → “Verification Successful” screen
+➤ Step 4: Onboarding Preferences (optional for MVP)
+Select legal interest areas (checkboxes):
+Consumer Rights
+Employment Law
+Tenancy Issues
+Small Claims, etc.
+➤ Step 5: Registration Success
+Redirect to: Customer Dashboard
+
+🔐 3. Login Flow (Returning User)
+➤ Step 1: Tap "Log In"
+Redirects to Login Screen
+➤ Step 2: Login Form
+Fields:
+Email or Phone
+Password
+Buttons:
+[Login]
+[Forgot Password?]
+[Back to Register]
+➤ Step 3: Authentication Logic
+Credentials checked via secure API
+If success → Session token stored securely
+If fail → Error message displayed
+If multiple failures → CAPTCHA or OTP fallback
+➤ Step 4: Successful Login
+Redirect to Customer Dashboard
+Session persists using:
+Encrypted tokens (JWT)
+Optional “Remember Me” setting
+
+🔄 4. Optional: Social & Passwordless Login (V2 or Premium)
+[Continue with Google / Apple]
+[Login via OTP]
+
+🔒 Security Highlights
+Security Layer
+Description
+Data Encryption
+All passwords hashed using bcrypt
+HTTPS
+All connections secured
+Rate Limiting
+Prevent brute force login attempts
+Session Timeout
+Automatic logout after inactivity
+GDPR
+Consent captured during registration
+
+
+✅ Summary Flowchart
+css
+CopyEdit
+[Welcome Screen]
+     ↓
+[Register] or [Login]
+     ↓
+ ┌────────────┐     ┌─────────────┐
+ │Registration│     │   Login     │
+ └────────────┘     └─────────────┘
+     ↓                  ↓
+[Verification]      [Auth Check]
+     ↓                  ↓
+[Onboarding]       [Dashboard]
+     ↓                  ↓
+[Dashboard]       [Session Start]
+
+ S

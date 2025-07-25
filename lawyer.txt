@@ -1,0 +1,230 @@
+Lawyer Dashboard UX
+Lawyer Dashboard UX Design — Key Features & Flow
+1. Notification Center for New Assignments
+Purpose:
+Keep lawyers immediately informed about new case assignments to ensure timely responses.
+
+Design Considerations:
+
+Real-time alerts: A bell or notification icon with a red badge count indicating new assignments.
+
+Brief preview: On click, display a dropdown list of new cases with key info:
+
+Case Title
+
+Client Name
+
+Submission date/time
+
+Urgency/priority level (e.g., High, Medium, Low)
+
+Quick actions: Buttons to Accept or Decline directly from the notification panel for fast interaction without leaving the page.
+
+Notification history: Link to “All Notifications” page for reviewing older assignments and updates.
+
+2. Intuitive Accept/Decline Workflow with Deadlines & Priority Markers
+Purpose:
+Enable lawyers to manage incoming cases efficiently, prioritize work, and commit to cases clearly.
+
+Design Elements:
+
+Case List Overview:
+A table or card layout showing all assigned cases filtered by status — Pending Acceptance, Accepted, Declined.
+
+Pending Cases Section:
+
+Prominent accept/decline buttons for each pending case.
+
+Deadline display: Show time remaining to accept (e.g., “Accept within 48 hrs”).
+
+Priority tags: Color-coded markers (red for High, orange for Medium, green for Low) visible next to case titles.
+
+Confirmation Modal:
+When a lawyer clicks Accept or Decline, a modal pops up:
+
+Confirm action with case summary.
+
+Optionally add notes or reasons for decline.
+
+Reminder of deadlines and next steps after acceptance.
+
+Status Feedback:
+After action, immediate visual update in the dashboard:
+
+Accepted cases move to “Active Cases” section.
+
+Declined cases disappear from the pending list and notify admin/client accordingly.
+
+3. Easy Access to Client Documents & Annotation Tools
+Purpose:
+Streamline lawyer’s ability to review documents and add annotations directly, improving collaboration and turnaround times.
+
+Key UX Features:
+
+Document Access Panel:
+
+For each case, list all uploaded client documents with file type icons (PDF, DOCX, etc.).
+
+Click to open documents in an integrated viewer or download.
+
+Integrated Annotation Tool:
+
+Inline viewer with tools for highlighting, commenting, and drawing on documents.
+
+Sidebar for lawyer’s annotation notes linked to document sections.
+
+Auto-save annotations to annotated_document_url and annotation_notes fields in the backend.
+
+Version Control:
+
+Track document versions with timestamps.
+
+Allow lawyer to upload updated annotated versions.
+
+Task & Comment Threads:
+
+Allow lawyers to create task checklists or threaded comments visible to clients/admin (depending on permissions).
+
+Example Dashboard Layout (Wireframe Description)
+---------------------------------------------------------
+| Top Bar: Logo | Notifications (with badge) | Profile  |
+---------------------------------------------------------
+| Sidebar:                                              |
+| - Dashboard                                          |
+| - Pending Cases (with count badge)                   |
+| - Active Cases                                       |
+| - Completed Cases                                    |
+| - Settings                                          |
+---------------------------------------------------------
+| Main Content Area:                                   |
+|                                                     |
+| Pending Cases:                                      |
+|  ------------------------------------------------- |
+| | Priority | Title              | Deadline | Actions |  
+| | [High]   | Review Lease Agree | 48 hrs   | Accept | Decline |
+| | [Med]    | Contract Draft     | 72 hrs   | Accept | Decline |
+|  ------------------------------------------------- |
+|                                                     |
+| Active Cases:                                       |
+| - List of accepted cases with links to documents   |
+| - Quick access to annotation interface              |
+|                                                     |
+---------------------------------------------------------
+
+
+Details:
+Lawyer Dashboard — Detailed Wireframe & UI
+Awesome! Let’s start with a **detailed wireframe and UI copy** for the Lawyer Dashboard focused on the key flows: notifications, case acceptance/decline, and document annotation access.
+
+---
+
+# Lawyer Dashboard — Detailed Wireframe & UI Copy
+
+---
+
+### 1. Top Navigation Bar
+
+* **Logo (left)**
+* **Notification Icon (bell) (right)**
+
+  * Badge showing count of new assignments (e.g., “3”)
+* **User Profile (avatar + dropdown) (right)**
+
+---
+
+### 2. Sidebar Navigation (Vertical, left side)
+
+* **Dashboard**
+* **Pending Cases** (with badge showing count, e.g. “3”)
+* **Active Cases**
+* **Completed Cases**
+* **Settings**
+
+---
+
+### 3. Main Content Area
+
+---
+
+#### A. Notification Center (Dropdown on bell icon click)
+
+* **Header:** New Case Assignments (3)
+* **List:**
+
+  * \[High] Review Lease Agreement
+    Client: John Doe
+    Submitted: 2 hours ago
+    \[Accept] \[Decline]
+  * \[Medium] Draft NDA
+    Client: Acme Corp
+    Submitted: 1 day ago
+    \[Accept] \[Decline]
+* **Footer:**
+  \[View All Notifications →]
+
+---
+
+#### B. Pending Cases Section
+
+| Priority  | Case Title             | Client     | Deadline          | Actions              |
+| --------- | ---------------------- | ---------- | ----------------- | -------------------- |
+| 🔴 High   | Review Lease Agreement | John Doe   | Accept within 48h | \[Accept] \[Decline] |
+| 🟠 Medium | Draft NDA              | Acme Corp  | Accept within 72h | \[Accept] \[Decline] |
+| 🟢 Low    | Contract Review        | Jane Smith | Accept within 7d  | \[Accept] \[Decline] |
+
+**UI copy:**
+
+* **Accept button:** “Accept Case”
+* **Decline button:** “Decline Case”
+
+**On click (modal):**
+
+* **Title:** Confirm Action
+* **Text:** Are you sure you want to \[Accept/Decline] the case “Review Lease Agreement” for client John Doe?
+* **Optional input:** Reason for decline (if declining)
+* **Buttons:** Confirm / Cancel
+
+---
+
+#### C. Active Cases Section
+
+List of accepted cases with quick links:
+
+| Case Title             | Client    | Status      | Last Updated | Actions           |
+| ---------------------- | --------- | ----------- | ------------ | ----------------- |
+| Review Lease Agreement | John Doe  | In Progress | 2 hours ago  | \[View Documents] |
+| Draft NDA              | Acme Corp | In Progress | 1 day ago    | \[View Documents] |
+
+---
+
+#### D. Document Viewer & Annotation Interface (upon clicking "View Documents")
+
+* **File list:**
+
+  * lease\_agreement.pdf (Click to open)
+  * client\_notes.docx
+
+* **Document viewer pane:**
+
+  * Display PDF/DOCX inline with toolbar for:
+
+    * Highlight
+    * Comment
+    * Draw/Annotate
+    * Add notes sidebar
+
+* **Annotation notes panel:** Editable text area for lawyer to add notes, auto-saved.
+
+* **Save / Upload Updated Version** button.
+
+---
+
+---
+
+### Next Steps
+
+* I can generate a **clickable interactive prototype** using tools like Figma or Canva (description + link) if you want.
+* Or, create a **UI component specification** for your dev team with colors, typography, and interaction details.
+* Or, provide **full user flow scripts** for onboarding lawyers to the dashboard.
+
+

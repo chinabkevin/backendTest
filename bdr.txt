@@ -1,0 +1,173 @@
+Business Case & Business Requirements Document (BRD) for LegaliQ Legal & Consumer Rights Assistance App
+1. Business Case
+1.1 Executive Summary
+The One-Tap Legal & Consumer Rights Assistance App is designed to bridge the gap between consumers and accessible legal information. Many individuals lack knowledge of their legal rights and cannot afford professional legal services. This app will provide instant, AI-powered legal guidance, automated legal document generation, and affordable lawyer consultations. The goal is to make legal assistance more accessible, affordable, and efficient.
+1.2 Business Problem
+Lack of legal knowledge: Most individuals and small businesses do not understand their legal rights in consumer disputes, employment, rental agreements, and small claims.
+High cost of legal services: Traditional legal services are expensive, discouraging people from seeking advice.
+Complex legal language: Legal jargon is often difficult for non-professionals to understand.
+Time-consuming legal processes: People struggle with drafting legal letters and understanding procedural steps.
+1.3 Market Opportunity
+85% of consumers lack an understanding of their legal rights.
+67% of small claims go unresolved due to complexity and cost.
+Increasing demand for AI-driven legal solutions.
+Competitive advantage: No direct competitor offering an AI-driven, all-in-one legal assistant.
+1.4 Objectives & Benefits
+Objective
+Benefit
+Provide instant legal information
+Reduces reliance on expensive lawyers
+Offer AI-powered legal document generation
+Saves time and effort for users
+Connect users with affordable legal professionals
+Makes legal services more accessible
+Ensure compliance with jurisdictional laws
+Provides region-specific legal support
+Monetization through subscriptions & legal referrals
+Generates a sustainable revenue model
+
+
+2. Business Requirements Document (BRD)
+2.1 Project Scope
+In-Scope:
+AI-driven legal chatbot – Provides quick answers to legal queries.
+Automated legal document generator – Creates refund requests, dispute letters, tenancy complaints, and employment grievance letters.
+Lawyer consultation feature – Connects users with verified legal professionals at affordable rates.
+Multi-jurisdictional support – Ensures compliance with laws in different countries.
+Subscription & pay-per-use model – Users can access basic services for free and upgrade for premium features.
+Out of Scope:
+Court representation services.
+Advanced corporate legal services.
+2.2 Key Stakeholders
+Stakeholder
+Role
+End Users
+Consumers, tenants, employees, small businesses
+Legal Professionals
+Lawyers providing consultation services
+App Development Team
+Engineers, UX/UI designers, AI specialists
+Legal Researchers
+Ensuring compliance with country-specific laws
+Investors
+Providing funding for initial development
+
+2.3 Functional Requirements
+ID
+Requirement
+Priority
+FR-01
+AI chatbot provides real-time legal answers
+High
+FR-02
+Users can input issues and generate pre-written legal letters
+High
+FR-03
+Integration with legal professionals for consultations
+Medium
+FR-04
+Multi-language support for different legal systems
+Medium
+FR-05
+Secure storage of user documents & legal letters
+High
+
+2.4 Non-Functional Requirements
+ID
+Requirement
+Priority
+NFR-01
+High data security and encryption
+High
+NFR-02
+Scalable AI system handling large queries
+High
+NFR-03
+User-friendly interface with accessibility options
+Medium
+NFR-04
+Cloud-based for multi-device access
+Medium
+
+2.5 Risks & Mitigation Plan
+Risk
+Impact
+Mitigation Strategy
+Legal inaccuracies from AI
+High
+Regular legal updates & expert verification
+Data privacy concerns
+High
+Implement GDPR & secure encryption
+Low adoption rate
+Medium
+Strong marketing & referral incentives
+Competition from law firms
+Medium
+Position as a complement, not a replacement
+
+2.6 Success Metrics
+100,000+ downloads in first year
+Customer satisfaction rate above 85%
+High engagement with AI chatbot & document generation
+Strong lawyer partnership network
+2.7 Development Roadmap
+Phase
+Timeline
+Milestone
+Phase 1
+Month 1-3
+Market research & AI training
+Phase 2
+Month 4-6
+Prototype development & testing
+Phase 3
+Month 7-9
+Beta release & user feedback collection
+Phase 4
+Month 10-12
+Official launch & marketing campaign
+
+
+3. Workflow Diagram
+User Onboarding:
+User registers and sets up a profile.
+Provides basic legal preferences (e.g., consumer rights, tenancy, employment law, etc.).
+AI Legal Assistant Interaction:
+User inputs legal query.
+AI chatbot analyzes query and provides an immediate response with relevant legal information.
+Document Generation:
+User selects document type (e.g., refund request, dispute letter).
+AI auto-generates a legal document based on user inputs.
+User can edit and download the document.
+Lawyer Consultation (Premium Feature):
+User requests a professional review.
+System matches user with an available legal professional.
+Consultation occurs via in-app chat or video call.
+Secure Document Storage & User History:
+User stores generated legal documents securely.
+Access to previous queries and consultations.
+Monetization & Subscription:
+Free tier: AI chatbot and basic document generation.
+Premium tier: Lawyer consultations and advanced document customization.
+
+4. Use Cases & User Stories
+4.1 Use Cases
+User Seeks Legal Advice
+Actor: Consumer/User
+Description: User asks the AI chatbot a legal question.
+Outcome: AI provides an accurate response based on legal knowledge base.
+User Generates a Legal Document
+Actor: Consumer/User
+Description: User selects and fills out a form for a specific legal document.
+Outcome: System generates a customized legal letter for download.
+User Books a Lawyer Consultation
+Actor: Consumer/User
+Description: User selects a lawyer for paid legal advice.
+Outcome: User completes the consultation via in-app chat or video.
+4.2 User Stories
+As a consumer, I want to ask a legal question, so that I can understand my rights.
+As a tenant, I want to generate a legal dispute letter, so that I can address rental issues with my landlord.
+As a business owner, I want to book a legal consultation, so that I can get professional advice quickly.
+As a lawyer, I want to receive client queries, so that I can offer legal assistance efficiently.
+

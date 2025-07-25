@@ -1,0 +1,58 @@
+ Document Generator API Complete!
+�� What's Implemented:
+1. Database Schema:
+Documents table with proper relationships
+JSONB storage for form data
+Soft delete functionality
+Audit trails with timestamps
+2. AI Document Generation:
+DeepSeek R1 model via OpenRouter
+Professional prompts for each document type
+Template-based generation with form data
+Error handling and validation
+3. Document Templates:
+✅ NDA (Non-Disclosure Agreement)
+✅ Employment Contract
+✅ Rental Agreement
+✅ Service Agreement
+4. API Endpoints:
+POST /api/v1/documents/generate - Generate documents
+GET /api/v1/documents/templates - Get available templates
+GET /api/v1/documents/user - Get user's documents
+GET /api/v1/documents/:id - Get specific document
+DELETE /api/v1/documents/:id - Delete document
+5. Features:
+AI-powered generation using DeepSeek R1
+Professional legal language and structure
+Form validation and error handling
+Document storage in database
+User-specific documents with security
+Soft delete for document management
+🔧 Setup Required:
+Get OpenRouter API Key:
+Sign up at OpenRouter
+Get your free API key
+Add to backend .env: OPENROUTER_API_KEY=your_key_here
+Start Backend Server:
+Apply to document.txt
+Run
+   cd backend && npm run dev
+Test Document Generation:
+Go to /dashboard/documents
+Select a template
+Fill in the form
+Generate document with AI
+�� Key Features:
+Professional AI Prompts for each document type
+Comprehensive legal clauses and structure
+Secure document storage with user isolation
+Real-time generation with loading states
+Download and copy functionality
+Document management (view, delete)
+💡 AI Integration:
+Uses DeepSeek R1 model (free tier)
+Professional legal language generation
+Template-based prompts with form data
+Error handling for API failures
+Rate limiting and validation
+The document generator is now fully functional and ready to create professional legal documents using AI! Users can generate comprehensive legal agreements with proper structure and language.

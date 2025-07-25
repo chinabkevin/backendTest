@@ -1,0 +1,168 @@
+## 📝 LegaliQ MVP – Technical Requirements File
+
+### 1. Tech Stack
+
+| Layer                  | Technology                               |
+| ---------------------- | ---------------------------------------- |
+| **Frontend Framework** | React (with Next.js Routing)             |
+| **UI Styling**         | Tailwind CSS                             |
+| **Component Library**  | shadcn/ui                                |
+| **Auth**               | NextAuth.js / Supabase Auth              |
+| **PWA Support**        | `next-pwa` plugin                        |
+| **Storage**            | Supabase / Firebase (for MVP)            |
+| **Database**           | PostgreSQL via Supabase                  |
+| **Backend**            | Next.js API routes (Edge-ready)          |
+| **AI Chatbot**         | OpenAI / Ollama API (self-hosted option) |
+| **PDF Generation**     | `pdf-lib` / `react-pdf` / `puppeteer`    |
+| **Payment**            | Stripe                                   |
+| **Hosting**            | Vercel / Supabase / Railway              |
+| **Security**           | HTTPS, JWT, Supabase RLS policies        |
+| **Monitoring**         | LogRocket / Sentry / PostHog             |
+
+---
+
+### 2. Project Structure
+
+```
+/legaliq-app
+├── app/                  # Next.js App Router
+│   ├── dashboard/        # Dashboard UI (after login)
+│   ├── chatbot/          # Legal chatbot interface
+│   ├── documents/        # Document generation UI
+│   ├── auth/             # Sign In, Sign Up
+│   ├── premium/          # Upgrade to premium
+│   └── layout.tsx        # Shared layout using shadcn
+├── components/           # Reusable UI components
+├── lib/                  # Utility functions
+├── hooks/                # Custom React hooks
+├── pages/                # For legacy fallback routes
+├── public/               # Static assets
+├── styles/               # Tailwind base styles
+├── utils/                # Form validators, helpers
+├── middleware.ts         # Auth middleware
+├── next.config.js
+├── tailwind.config.js
+├── package.json
+└── tsconfig.json
+```
+
+---
+
+### 3. Functional Modules Breakdown
+
+#### ✅ AI Legal Chatbot
+
+* UI: Chat interface (like WhatsApp)
+* Input: User query
+* Output: AI-generated legal advice
+* API: `/api/chat/legal`
+* Technologies: OpenAI GPT or Ollama (optional fallback)
+* Storage: Save chat history per user
+
+#### ✅ Legal Document Generator
+
+* UI: Form wizard per document type
+* Types: Refund, Dispute, Tenancy, Employment
+* Output: PDF
+* API: `/api/documents/generate`
+* Downloadable & stored securely
+
+#### ✅ User Authentication & Profile
+
+* Auth: Email/password & OAuth (Google)
+* Auth library: NextAuth.js
+* Profile page: Preferred legal domains
+* API: `/api/user/profile`
+
+#### ✅ Secure Document Storage
+
+* Storage via Supabase/Firebase buckets
+* Access controlled by session tokens
+* Download/Edit/Delete options
+
+#### ✅ Basic Subscription Model
+
+* Stripe integration (Starter/Premium)
+* Premium features:
+
+  * Priority chatbot access
+  * Lawyer video/chat
+  * Unlimited documents
+* API: `/api/subscribe`
+
+---
+
+### 4. Non-Functional Requirements
+
+| Requirement     | Implementation Notes                               |
+| --------------- | -------------------------------------------------- |
+| GDPR & Security | JWT, Supabase RLS, HTTPS, consent forms            |
+| UI/UX Design    | Mobile-first using Tailwind + shadcn/ui components |
+| Cloud-Based     | Hosted on Vercel + Supabase                        |
+| AI Scalability  | Serverless functions or Edge runtimes              |
+
+---
+
+### 5. PWA Configuration
+
+* Install: `next-pwa`
+* Features:
+
+  * Offline support
+  * Home screen shortcut
+  * Manifest.json with LQ branding
+* Cache: Legal chat history, saved documents
+
+---
+
+### 6. NPM Dependency Checklist
+
+```bash
+# Required dependencies
+npm install next react react-dom tailwindcss postcss autoprefixer
+npm install @shadcn/ui clsx lucide-react
+npm install next-auth @supabase/supabase-js
+npm install @stripe/stripe-js @stripe/react-stripe-js
+npm install next-pwa
+npm install react-hook-form zod
+npm install pdf-lib react-pdf
+npm install axios
+npm install openai  # Optional, or ollama API SDK
+```
+
+---
+
+### 7. MVP API Endpoints
+
+| Endpoint                  | Method  | Description                          |
+| ------------------------- | ------- | ------------------------------------ |
+| `/api/chat/legal`         | POST    | Send question, get AI legal response |
+| `/api/documents/generate` | POST    | Generate document PDF                |
+| `/api/user/profile`       | GET/PUT | Get/update user preferences          |
+| `/api/auth/*`             | -       | Auth handled via NextAuth.js         |
+| `/api/subscribe`          | POST    | Upgrade user plan via Stripe         |
+
+---
+
+### 8. Milestone Checklist (Dev Sprint)
+
+#### ✅ Phase 1 (Month 1–2)
+
+* [ ] Scaffold Next.js app with Tailwind & shadcn
+* [ ] Implement AI Chatbot interface
+* [ ] Setup document generation backend
+
+#### ✅ Phase 2 (Month 3–4)
+
+* [ ] Design onboarding & dashboard UI
+* [ ] Add secure Supabase document storage
+* [ ] Profile preferences + legal topics
+
+#### ✅ Phase 3 (Month 5)
+
+* [ ] End-to-end testing + feedback loop
+* [ ] Fix bugs, optimize PWA features
+
+#### ✅ Phase 4 (Month 6)
+
+* [ ] Launch PWA on Web + Android via TWA

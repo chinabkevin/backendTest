@@ -1,0 +1,52 @@
+1.  Case Table Schema for Neon/Postgres
+Here’s a professional schema for a case table, designed for your LegaliQ platform and Neon/Postgres, supporting all the flows you’ve described:
+CREATE TABLE IF NOT EXISTS "case" (
+    id SERIAL PRIMARY KEY,
+    client_id INTEGER NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+    freelancer_id INTEGER REFERENCES freelancer(user_id) ON DELETE SET NULL,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'declined', 'completed')),
+    case_summary_url TEXT,
+    annotated_document_url TEXT,
+    annotation_notes TEXT,
+    assigned_at TIMESTAMPTZ,
+    accepted_at TIMESTAMPTZ,
+    declined_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+client_id: The user who created the case.
+freelancer_id: The assigned lawyer (can be null until assigned).
+status: Tracks the workflow (pending, accepted, declined, completed).
+case_summary_url: Link to the uploaded case summary (PDF, doc, etc.).
+annotated_document_url: Link to the lawyer’s annotated version.
+annotation_notes: Lawyer’s notes.
+Timestamps: For workflow tracking.
+
+2. When to Register a Case?
+A case should be registered when:
+A client (user) submits a new legal request or uploads a document for review.
+This is typically triggered from the client dashboard:
+“Submit a new case” or “Upload document for review”.
+Flow:
+Client fills out a form (title, description, uploads document).
+Backend creates a new row in the case table with status = 'pending' and freelancer_id = NULL.
+Platform assigns a freelancer (either automatically or manually by admin).
+Freelancer is notified and can accept/decline the case.
+API Example for Case Registration:
+POST /api/cases
+Content-Type: application/json
+
+{
+  "clientId": 123,
+  "title": "Review Lease Agreement",
+  "description": "Please review the attached lease agreement.",
+  "caseSummaryUrl": "https://example.com/lease.pdf"
+}
+The backend should create the case with status: 'pending' and no freelancer assigned yet.
+
+Register cases with auto-assignment.
+Let clients view their own cases.
+Allow admins to manually assign cases to freelancers.

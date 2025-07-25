@@ -1,0 +1,142 @@
+{
+  "info": {
+    "name": "LegaliQ Consultation API",
+    "description": "API collection for LegaliQ consultation features",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5001",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Get Available Lawyers",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/lawyers",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "lawyers"]
+        },
+        "description": "Returns a list of available legal professionals"
+      },
+      "response": []
+    },
+    {
+      "name": "Book Consultation",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"userId\": \"user-supabase-id\",\n  \"lawyerId\": 1,\n  \"datetime\": \"2025-07-20T15:00:00Z\",\n  \"method\": \"video\",\n  \"notes\": \"I need advice on a rent deposit issue.\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/consultations/book",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "consultations", "book"]
+        },
+        "description": "Books a legal consultation"
+      },
+      "response": []
+    },
+    {
+      "name": "Get My Consultations",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/consultations/my?userId=user-supabase-id",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "consultations", "my"],
+          "query": [
+            {
+              "key": "userId",
+              "value": "user-supabase-id"
+            }
+          ]
+        },
+        "description": "Get user's consultations"
+      },
+      "response": []
+    },
+    {
+      "name": "Cancel Consultation",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"cancel\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/consultations/1",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "consultations", "1"]
+        },
+        "description": "Cancel a consultation"
+      },
+      "response": []
+    },
+    {
+      "name": "Reschedule Consultation",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"action\": \"reschedule\",\n  \"newDatetime\": \"2025-07-21T14:00:00Z\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/consultations/1",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "consultations", "1"]
+        },
+        "description": "Reschedule a consultation"
+      },
+      "response": []
+    },
+    {
+      "name": "Submit Feedback",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"rating\": 5,\n  \"comments\": \"The lawyer was very helpful and provided clear advice.\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/consultations/1/feedback",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "consultations", "1", "feedback"]
+        },
+        "description": "Submit feedback for a completed consultation"
+      },
+      "response": []
+    }
+  ]
+} 

@@ -1,0 +1,173 @@
+FREELANCE LAWYER JOURNEY & FLOW (LegaliQ MVP)
+
+1. End-to-End Journey Map
+PHASE 1: Access & Registration
+Landing Page → “Join as a Lawyer”
+Registration Form
+Name, Email, Phone, Experience
+Upload credentials (ID, Bar Certificate, etc.)
+Select Areas of Legal Expertise
+Agree to Platform NDA & Guidelines
+Verification Process
+Admin review + background check
+Onboarding Success → Access to Lawyer Dashboard
+
+PHASE 2: Dashboard Interaction
+Dashboard Widgets
+New Case Requests
+Assigned Cases
+Chat Requests from Users
+Documents to Review
+
+PHASE 3: Case Engagement
+Accept / Decline New Case
+View Case Summary (uploaded by customer or system)
+Chat / Video with Client
+Annotate Documents
+Upload Reviewed Version
+Close Case → Feedback from client
+
+PHASE 4: Earnings & Ratings
+Earnings Panel
+View per-case income
+Withdraw funds (Stripe or bank transfer)
+User Ratings Panel
+Stars + written reviews
+Profile performance score
+
+Freelance Lawyer Flowchart (Text View)
+csharp
+CopyEdit
+[Landing Page]
+     ↓
+[Register as Lawyer]
+     ↓
+[Upload Docs + Select Legal Areas]
+     ↓
+[Platform Verification]
+     ↓
+[Access Dashboard]
+     ↓
+[View & Accept Cases]
+     ↓
+[Chat / Review / Annotate Docs]
+     ↓
+[Submit Legal Report]
+     ↓
+[Receive Payment + Ratings]
+
+Documents Used by Freelance Lawyers
+Document
+Purpose
+Lawyer NDA
+Ensures confidentiality
+Credential Verification File
+Upload of bar ID, etc.
+Case Summary Report
+Reviewed version for client
+Legal Review Certificate (optional)
+Value-add document for premium
+Payment Invoice
+Automatically generated
+Feedback Log
+Internal dashboard for QA
+
+
+Dashboard Sections for Freelance Lawyers
+Home – Quick stats, total earnings, pending reviews
+Case Inbox – List of available and assigned cases
+Chat Interface – Real-time AI or user conversation
+Document Annotator – View and comment on legal docs
+Profile & Credentials – Manage qualifications, areas of law
+Payments – Withdraw earnings and track transactions
+Ratings & Feedback – Review performance and complaints
+
+
+Key MVP Features for Freelance Lawyers
+Feature
+Description
+Case Acceptance Workflow
+Accept/decline with time limits
+Annotated Review System
+Markup documents with legal notes
+Secure Client Communication
+Chat & video consultation tools
+Auto-Invoicing
+Platform manages lawyer billing
+Availability Toggle
+Lawyer can set online/offline status
+Notification System
+Case alerts, messages, deadlines
+
+
+
+
+
+
+
+
+Use Case: Freelance Lawyer – LegaliQ Platform
+Actor
+Freelance Lawyer (verified legal professional)
+
+Goal
+To join the LegaliQ platform, receive case assignments, communicate with clients, annotate legal documents, and submit professional legal reviews.
+
+Preconditions
+Lawyer must have valid credentials (bar registration, ID, etc.)
+Must complete platform verification process
+Agreed to NDA and Legal Use Terms
+
+Triggers
+Lawyer clicks “Join as a Lawyer” from the platform
+Receives notification of a new case assignment or chat request
+
+Main Flow
+Sign-Up & Verification
+Lawyer registers and uploads legal credentials
+Selects legal practice areas (e.g., Consumer, Tenancy)
+Platform verifies documents and enables access
+Access Dashboard
+View incoming case requests and active assignments
+Track ongoing case statuses and client messages
+Accept & Manage Cases
+Accept a new case within 24-hour window
+Review case summary and auto-generated documents
+Optional: Schedule or conduct client consultation
+Annotate & Submit
+Use built-in editor to review documents
+Add legal corrections, improvements, and advice
+Mark case as complete and submit annotated version
+Receive Rating & Payment
+Client provides post-review feedback
+Earnings are logged and can be withdrawn
+
+Postconditions
+Legal document is enhanced by licensed lawyer
+Client receives a complete, reviewed case file
+Lawyer is paid and rated
+
+Alternate Flows
+Condition
+Alternate Flow
+Lawyer declines case
+Case is rerouted to another available lawyer
+Lawyer misses deadline
+System reassigns case & flags account
+Verification rejected
+Lawyer cannot access dashboard
+
+
+System Requirements Used
+Lawyer dashboard
+Credential uploader
+Real-time chat & video
+Legal doc annotator
+Stripe payout integration
+Review & rating system
+
+ Outcome
+Platform ensures trust through vetted lawyer interaction
+Legal accuracy is improved
+Lawyers earn income by supporting clients remotely
+

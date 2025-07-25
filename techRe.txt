@@ -1,0 +1,118 @@
+# 📝 LegaliQ MVP – Updated Technical Requirements File (with Landing Page)
+
+### 🧩 1. App Overview
+
+* **Product Name**: LegaliQ – One-Tap Legal & Consumer Rights Assistance App
+* **Type**: React + Next.js (App Router) + Tailwind CSS + shadcn/ui
+* **Platform**: Progressive Web App (PWA) with web + mobile support
+* **Entry Point**: Responsive, SEO-optimized Landing Page
+
+---
+
+### 📌 2. Pages & Routes
+
+| Route            | Page Name          | Description                                    |
+| ---------------- | ------------------ | ---------------------------------------------- |
+| `/`              | **Landing Page**   | Hero, Features, Testimonials, CTA, FAQ, Footer |
+| `/auth/login`    | Login              | User login form                                |
+| `/auth/register` | Register           | Sign-up for new users                          |
+| `/dashboard`     | Dashboard          | Logged-in overview of user actions             |
+| `/chatbot`       | AI Chatbot         | Chat interface for legal Q\&A                  |
+| `/documents`     | Document Generator | Select & generate legal documents              |
+| `/profile`       | Profile            | User info, legal preferences                   |
+| `/premium`       | Upgrade            | View and subscribe to premium services         |
+| `/legal`         | Legal Info         | Terms of service, privacy policy               |
+| `/404`           | Not Found          | Custom error page                              |
+
+---
+
+### 🌐 3. Landing Page Structure (`/`)
+
+| Section             | Description                                                        |
+| ------------------- | ------------------------------------------------------------------ |
+| **Hero**            | Eye-catching headline, subtext, CTA ("Get Started")                |
+| **Features**        | Icons/text explaining AI Legal Help, Docs, Storage, Premium Access |
+| **How It Works**    | 3-step guide: Ask → Generate → Consult                             |
+| **Testimonials**    | User reviews / future placeholders                                 |
+| **Pricing Summary** | Free vs Premium with feature breakdown                             |
+| **CTA Section**     | Button: "Start for Free" → redirect to `/auth/register`            |
+| **FAQ**             | Common questions about legality, usage, safety                     |
+| **Footer**          | Branding, contact info, legal pages, social icons                  |
+
+✅ Built with:
+
+* Tailwind CSS grid/flex for responsive layout
+* `shadcn/ui` components: Button, Accordion, Card, Tooltip, Tabs
+* SEO tags (`<Head>`) for title, description, social sharing
+* Optional: Hero animation using `framer-motion`
+
+---
+
+### 🎨 UI Component Plan
+
+Use `shadcn/ui` for clean, modern, accessible components:
+
+| Component           | Usage in MVP                       |
+| ------------------- | ---------------------------------- |
+| `Button`            | CTA actions                        |
+| `Card`              | Feature blocks, testimonial quotes |
+| `Tabs`              | Document types, pricing plans      |
+| `Accordion`         | FAQs                               |
+| `Avatar`            | User profile                       |
+| `Tooltip`           | Legal term hints                   |
+| `Dialog/Sheet`      | Edit profile, download documents   |
+| `Input`, `Textarea` | Forms for legal document fields    |
+
+---
+
+### 🔧 4. Landing Page Development Checklist
+
+| Task                                   | Status |
+| -------------------------------------- | ------ |
+| Create `app/(public)/page.tsx` for `/` | ⬜      |
+| Add responsive layout using Tailwind   | ⬜      |
+| Integrate `shadcn/ui` components       | ⬜      |
+| Connect CTA buttons to auth flow       | ⬜      |
+| SEO Optimization & meta tags           | ⬜      |
+| Optional: Lottie animation in hero     | ⬜      |
+| Footer with links + privacy page       | ⬜      |
+
+---
+
+### 🚀 MVP PWA Optimization
+
+* Install: `next-pwa`
+
+* Add `manifest.json`:
+
+  ```json
+  {
+    "name": "LegaliQ",
+    "short_name": "LegaliQ",
+    "start_url": "/",
+    "display": "standalone",
+    "theme_color": "#1f2937",
+    "background_color": "#ffffff",
+    "icons": [
+      {
+        "src": "/icon-192x192.png",
+        "sizes": "192x192",
+        "type": "image/png"
+      },
+      ...
+    ]
+  }
+  ```
+
+* Add service worker setup to support offline mode.
+
+---
+
+### 📂 Optional Folder Updates
+
+```
+/app/
+├── (public)/                  # Landing page (unauthenticated)
+/components/
+├── landing/                   # Hero, Features, Testimonials
+```

@@ -1,0 +1,295 @@
+reference ai : "https://openrouter.ai/docs/quickstart"
+DeepSeek: R1 (free)
+https://openrouter.ai/deepseek/deepseek-r1:free
+https://openrouter.ai/deepseek/deepseek-chat-v3-0324:free/api
+
+
+import { NextRequest, NextResponse } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
+
+export const runtime = 'nodejs';
+
+export async function POST(request: NextRequest) {
+  try {
+    // Create Supabase client for server-side
+    const cookieStore = cookies();
+    // Debug: log cookies
+    console.log('Cookies in API:', Array.from(cookieStore.getAll()));
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return Array.from(cookieStore.getAll()).map((cookie: { name: string, value: string }) => ({ name: cookie.name, value: cookie.value }));
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(async ({ name, value, options }) => {
+              (await cookieStore).set(name, value, options);
+            });
+          },
+        },
+      }
+    );
+
+    // Verify authentication
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
+    // Parse request body
+    const { templateId, formData, userId } = await request.json()
+
+    if (!templateId || !formData) {
+      return NextResponse.json(
+        { error: 'Missing required fields' },
+        { status: 400 }
+      )
+    }
+
+    // Generate document based on template
+    const document = generateDocument(templateId, formData)
+
+    // Log the document generation for analytics
+    console.log(`Document generated for user ${userId}, template: ${templateId}`)
+
+    return NextResponse.json({
+      success: true,
+      document,
+      templateId,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error generating document:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
+  }
+}
+
+function generateDocument(templateId: string, formData: Record<string, string>): string {
+  const templates: Record<string, (data: Record<string, string>) => string> = {
+    'nda': generateNDA,
+    'employment-contract': generateEmploymentContract,
+    'rental-agreement': generateRentalAgreement,
+    'service-agreement': generateServiceAgreement
+  }
+
+  const template = templates[templateId]
+  if (!template) {
+    throw new Error(`Unknown template: ${templateId}`)
+  }
+
+  return template(formData)
+}
+
+function generateNDA(data: Record<string, string>): string {
+  return `NON-DISCLOSURE AGREEMENT
+
+This Non-Disclosure Agreement (the "Agreement") is entered into as of ${data.effectiveDate} by and between:
+
+${data.companyName} (the "Disclosing Party")
+and
+${data.recipientName} (the "Receiving Party")
+
+1. CONFIDENTIAL INFORMATION
+The Receiving Party acknowledges that it may receive confidential and proprietary information from the Disclosing Party, including but not limited to: ${data.confidentialInfo}
+
+2. NON-DISCLOSURE
+The Receiving Party agrees to:
+- Keep all confidential information strictly confidential
+- Not disclose confidential information to any third party
+- Use confidential information solely for the purpose of ${data.companyName}'s business
+- Take reasonable steps to protect confidential information
+
+3. TERM
+This Agreement shall remain in effect for ${data.duration} from the effective date.
+
+4. RETURN OF MATERIALS
+Upon termination of this Agreement, the Receiving Party shall return all confidential materials to the Disclosing Party.
+
+5. GOVERNING LAW
+This Agreement shall be governed by the laws of the jurisdiction where ${data.companyName} is located.
+
+IN WITNESS WHEREOF, the parties have executed this Agreement as of the date first written above.
+
+${data.companyName}
+By: _________________________
+Date: _______________________
+
+${data.recipientName}
+By: _________________________
+Date: _______________________
+
+Contact Information:
+Recipient Email: ${data.recipientEmail}
+Effective Date: ${data.effectiveDate}
+Duration: ${data.duration}
+`
+}
+
+function generateEmploymentContract(data: Record<string, string>): string {
+  return `EMPLOYMENT CONTRACT
+
+This Employment Contract (the "Contract") is entered into between:
+
+${data.employerName} (the "Employer")
+and
+${data.employeeName} (the "Employee")
+
+1. POSITION AND DUTIES
+The Employee shall serve as ${data.jobTitle} and shall perform the following duties:
+${data.jobDescription}
+
+2. COMPENSATION
+The Employee shall receive an annual salary of ${data.salary}, payable in accordance with the Employer's standard payroll practices.
+
+3. WORK LOCATION
+The Employee shall primarily work at: ${data.workLocation}
+
+4. TERM OF EMPLOYMENT
+This Contract shall commence on ${data.startDate} and shall continue until terminated by either party in accordance with the terms of this Contract.
+
+5. WORK SCHEDULE
+The Employee shall work a standard workweek as determined by the Employer, with such additional hours as may be required to fulfill the Employee's duties.
+
+6. BENEFITS
+The Employee shall be eligible for benefits as provided by the Employer's standard benefit package.
+
+7. CONFIDENTIALITY
+The Employee agrees to maintain the confidentiality of all proprietary and confidential information of the Employer.
+
+8. TERMINATION
+Either party may terminate this Contract with appropriate notice as required by applicable law.
+
+IN WITNESS WHEREOF, the parties have executed this Contract as of the date first written above.
+
+${data.employerName} (Employer)
+By: _________________________
+Date: _______________________
+
+${data.employeeName} (Employee)
+By: _________________________
+Date: _______________________
+
+Employment Details:
+Job Title: ${data.jobTitle}
+Start Date: ${data.startDate}
+Annual Salary: ${data.salary}
+Work Location: ${data.workLocation}
+`
+}
+
+function generateRentalAgreement(data: Record<string, string>): string {
+  return `RENTAL AGREEMENT
+
+This Rental Agreement (the "Agreement") is entered into between:
+
+${data.landlordName} (the "Landlord")
+and
+${data.tenantName} (the "Tenant")
+
+1. PROPERTY
+The Landlord hereby rents to the Tenant the property located at:
+${data.propertyAddress}
+
+2. TERM
+This Agreement shall commence on ${data.leaseStart} and terminate on ${data.leaseEnd}.
+
+3. RENT
+The Tenant shall pay monthly rent of ${data.rentAmount}, due on the first day of each month.
+
+4. SECURITY DEPOSIT
+The Tenant has paid a security deposit of ${data.securityDeposit}, which shall be held by the Landlord as security for the Tenant's performance of this Agreement.
+
+5. UTILITIES
+The Tenant shall be responsible for all utilities and services unless otherwise specified in this Agreement.
+
+6. MAINTENANCE
+The Landlord shall be responsible for major repairs and maintenance, while the Tenant shall be responsible for minor maintenance and keeping the property clean.
+
+7. USE OF PROPERTY
+The Tenant shall use the property solely for residential purposes and shall not sublet or assign this Agreement without the Landlord's written consent.
+
+8. TERMINATION
+Either party may terminate this Agreement with appropriate notice as required by applicable law.
+
+IN WITNESS WHEREOF, the parties have executed this Agreement as of the date first written above.
+
+${data.landlordName} (Landlord)
+By: _________________________
+Date: _______________________
+
+${data.tenantName} (Tenant)
+By: _________________________
+Date: _______________________
+
+Property Details:
+Address: ${data.propertyAddress}
+Monthly Rent: ${data.rentAmount}
+Security Deposit: ${data.securityDeposit}
+Lease Start: ${data.leaseStart}
+Lease End: ${data.leaseEnd}
+`
+}
+
+function generateServiceAgreement(data: Record<string, string>): string {
+  return `SERVICE AGREEMENT
+
+This Service Agreement (the "Agreement") is entered into between:
+
+${data.serviceProvider} (the "Service Provider")
+and
+${data.clientName} (the "Client")
+
+1. SERVICES
+The Service Provider agrees to provide the following services:
+${data.serviceDescription}
+
+2. TERM
+This Agreement shall commence on ${data.startDate} and terminate on ${data.endDate}.
+
+3. COMPENSATION
+The Client shall pay the Service Provider ${data.serviceFee} for the services provided, payable according to the following terms: ${data.paymentTerms}
+
+4. PAYMENT TERMS
+Payment shall be made in accordance with the following schedule: ${data.paymentTerms}
+
+5. CONFIDENTIALITY
+Both parties agree to maintain the confidentiality of any proprietary information shared during the course of this Agreement.
+
+6. INDEPENDENT CONTRACTOR
+The Service Provider is an independent contractor and not an employee of the Client.
+
+7. TERMINATION
+Either party may terminate this Agreement with written notice as required by applicable law.
+
+8. GOVERNING LAW
+This Agreement shall be governed by the laws of the jurisdiction where the services are performed.
+
+IN WITNESS WHEREOF, the parties have executed this Agreement as of the date first written above.
+
+${data.serviceProvider} (Service Provider)
+By: _________________________
+Date: _______________________
+
+${data.clientName} (Client)
+By: _________________________
+Date: _______________________
+
+Service Details:
+Service Provider: ${data.serviceProvider}
+Client: ${data.clientName}
+Service Fee: ${data.serviceFee}
+Payment Terms: ${data.paymentTerms}
+Start Date: ${data.startDate}
+End Date: ${data.endDate}
+`
+} 

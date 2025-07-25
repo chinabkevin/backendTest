@@ -1,0 +1,26 @@
+Great context! Since you’re using Supabase for authentication, but your backend (Neon/Postgres) needs a user table for foreign key relationships (e.g., in freelancer and case), you should:
+Create a local user table in your Neon/Postgres DB.
+Sync basic user info (e.g., id, email, name) from Supabase when a user registers/logs in.
+Use this table for all your backend’s foreign key needs.
+1. User Table Schema (for Neon/Postgres)
+Here’s a simple, extensible schema:
+
+CREATE TABLE IF NOT EXISTS "user" (
+  id SERIAL PRIMARY KEY,
+  supabase_id UUID UNIQUE NOT NULL,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  name VARCHAR(100),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+supabase_id: The UUID from Supabase Auth (maps to their user).
+email, name: For convenience and lookups.
+You can add more fields as needed.
+2. When to Insert into This Table?
+On user registration or first login (webhook, callback, or after successful Supabase auth).
+Before creating a freelancer or case (ensure the user exists locally).
+3. How to Sync?
+When a user signs up/logs in via Supabase, check if their supabase_id exists in your local user table.
+If not, insert it.
+If yes, update info if needed.

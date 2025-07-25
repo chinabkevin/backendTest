@@ -1,0 +1,151 @@
+LEGAL CONSULTATION FEATURE FLOW
+
+User Flow Overview
+
+| Step                   | Description                           | Endpoint Called                        |
+| ---------------------- | ------------------------------------- | -------------------------------------- |
+| 1. View Lawyers        | User browses available lawyers        | `GET /api/lawyers`                     |
+| 2. Book Consultation   | Selects lawyer, date/time, method     | `POST /api/consultations/book`         |
+| 3. View Bookings       | Sees upcoming consultations           | `GET /api/consultations/my`            |
+| 4. Join Session        | Clicks "Join" → opens video/chat room | Uses `room_url` from DB                |
+| 5. Cancel/Reschedule   | Cancels or reschedules consultation   | `PATCH /api/consultations/:id`         |
+| 6. Feedback (optional) | User rates consultation experience    | `POST /api/consultations/:id/feedback` |
+
+
+API DESIGN FOR LEGALIQ CONSULTATIONS
+
+📘 1. GET /api/lawyers
+Returns a list of available legal professionals.
+
+[
+  {
+    "id": "lawyer-uuid",
+    "fullName": "Sarah Okello",
+    "specialty": ["Tenancy", "Consumer Rights"],
+    "availability": [
+      "2025-07-12T13:00:00Z",
+      "2025-07-12T15:00:00Z"
+    ],
+    "avatarUrl": "/lawyers/sarah.jpg"
+  }
+]
+ 2. POST /api/consultations/book
+ Books a legal consultation.
+
+✅ Request:
+{
+  "userId": "user-uuid",
+  "lawyerId": "lawyer-uuid",
+  "datetime": "2025-07-12T15:00:00Z",
+  "method": "video", // or "chat"
+  "notes": "I need advice on a rent deposit issue."
+}
+Response:
+{
+  "status": "confirmed",
+  "consultationId": "consultation-uuid",
+  "roomUrl": "https://meet.jit.si/legaliq-xyz"
+}
+
+3. GET /api/consultations/my
+Response:
+[
+  {
+    "id": "consultation-uuid",
+    "lawyerName": "Sarah Okello",
+    "datetime": "2025-07-12T15:00:00Z",
+    "method": "video",
+    "roomUrl": "https://meet.jit.si/legaliq-xyz",
+    "status": "confirmed"
+  }
+]
+4. PATCH /api/consultations/:id
+Request:
+{
+  "action": "reschedule", // or "cancel"
+  "newDatetime": "2025-07-13T12:00:00Z" // only if rescheduling
+}
+
+Response:
+{
+  "status": "rescheduled",
+  "newDatetime": "2025-07-13T12:00:00Z"
+}
+POST /api/consultations/:id/feedback
+Allows the user to leave a rating and feedback for the consultation.
+Request:
+{
+  "rating": 4,
+  "comments": "The lawyer was helpful and clear."
+}
+Response:
+{ "message": "Feedback saved." }
+
+DATABASE TABLES (Supabase SQL)
+-- lawyers table
+create table lawyers (
+  id uuid primary key default gen_random_uuid(),
+  full_name text,
+  specialty text[],
+  avatar_url text,
+  created_at timestamp default now()
+);
+
+-- consultations table
+create table consultations (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id),
+  lawyer_id uuid references lawyers(id),
+  scheduled_at timestamp,
+  method text check (method in ('chat', 'video')),
+  notes text,
+  room_url text,
+  status text default 'confirmed',
+  created_at timestamp default now()
+);
+
+-- feedback table
+create table consultation_feedback (
+  id uuid primary key default gen_random_uuid(),
+  consultation_id uuid references consultations(id),
+  rating integer,
+  comments text,
+  created_at timestamp default now()
+);
+
+reference : https://nextjs.org/
+            https://supabase.com/docs
+            https://ui.shadcn.com/
+ For Video meetings:           https://jaas.8x8.vc/
+
+
+
+
+  Consultation APIs Implemented
+Database Tables Added:
+consultations - Stores consultation bookings
+consultation_feedback - Stores user feedback and ratings
+API Endpoints Created:
+GET /api/lawyers - Returns available legal professionals
+Shows verified freelancers with availability status
+Includes performance scores and expertise areas
+POST /api/consultations/book - Books a legal consultation
+Validates user and lawyer existence
+Generates room URLs for video consultations
+Supports both video and chat methods
+GET /api/consultations/my - Get user's consultations
+Returns all consultations for a specific user
+Includes lawyer name, datetime, method, status
+PATCH /api/consultations/:id - Cancel or reschedule consultation
+Supports cancel and reschedule actions
+Validates consultation status
+POST /api/consultations/:id/feedback - Submit feedback
+Allows rating (1-5) and comments
+Updates freelancer performance score
+Prevents duplicate feedback
+Key Features:
+✅ Room URL Generation - Automatic Jitsi Meet URLs for video consultations
+✅ Performance Tracking - Updates freelancer ratings based on feedback
+✅ Status Management - confirmed, cancelled, rescheduled, completed
+✅ Validation - Comprehensive input validation and error handling
+✅ User Integration - Works with your existing user/freelancer system
