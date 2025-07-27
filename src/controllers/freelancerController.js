@@ -204,6 +204,41 @@ export async function annotateCaseDocument(req, res) {
     }
 }
 
+// --- SEARCH ---
+export async function searchFreelancers(req, res) {
+    const { name } = req.query;
+    try {
+        let freelancers;
+        if (name) {
+            // Search by name (case-insensitive, partial match)
+            freelancers = await sql`
+                SELECT * FROM freelancer 
+                WHERE LOWER(name) LIKE LOWER(${`%${name}%`}) 
+                ORDER BY created_at DESC
+            `;
+        } else {
+            // If no name provided, return top 5 onboarded freelancers
+            freelancers = await sql`
+                SELECT * FROM freelancer 
+                ORDER BY created_at DESC 
+                LIMIT 5
+            `;
+        }
+
+        if (freelancers.length === 0) {
+            return res.status(200).json({
+                message: "No onboarded lawyers found matching your search.",
+                freelancers: []
+            });
+        }
+
+        res.status(200).json({ freelancers });
+    } catch (error) {
+        console.error('Error searching freelancers:', error);
+        res.status(500).json({ error: 'Failed to search freelancers' });
+    }
+}
+
 // --- PAYMENTS ---
 export async function requestWithdrawal(req, res) {
     const { userId } = req.params;

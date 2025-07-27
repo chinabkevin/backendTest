@@ -44,8 +44,8 @@ export const bookConsultation = async (req, res) => {
     }
     
     // Validate method
-    if (!['video', 'chat'].includes(method)) {
-      return res.status(400).json({ error: 'Method must be either "video" or "chat"' });
+    if (!['video', 'chat', 'voice'].includes(method)) {
+      return res.status(400).json({ error: 'Method must be either "video", "chat", or "voice"' });
     }
     
     // Check if freelancer exists and is available
@@ -74,17 +74,39 @@ export const bookConsultation = async (req, res) => {
       ? `https://meet.jit.si/legaliq-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       : null;
     
+    // Calculate additional fee for voice call
+    const baseFee = 50; // Base consultation fee
+    const voiceCallFee = method === 'voice' ? 15 : 0; // Additional fee for voice calls
+    const totalFee = baseFee + voiceCallFee;
+    
     // Create consultation - store the freelancer's actual ID, not user_id
     const [consultation] = await sql`
-      INSERT INTO consultations (user_id, freelancer_id, scheduled_at, method, notes, room_url, status)
-      VALUES (${user[0].id}, ${freelancer[0].id}, ${datetime}, ${method}, ${notes}, ${roomUrl}, 'confirmed')
-      RETURNING id, room_url, status
+      INSERT INTO consultations (user_id, freelancer_id, scheduled_at, method, notes, room_url, status, base_fee, additional_fee, total_fee)
+      VALUES (${user[0].id}, ${freelancer[0].id}, ${datetime}, ${method}, ${notes}, ${roomUrl}, 'confirmed', ${baseFee}, ${voiceCallFee}, ${totalFee})
+      RETURNING id, room_url, status, method, total_fee
     `;
+    
+    // Create response with appropriate instructions based on method
+    let instructions = '';
+    if (consultation.method === 'voice') {
+      instructions = 'The lawyer will call you at the scheduled time.';
+    } else if (consultation.method === 'video') {
+      instructions = 'Join the video room at the scheduled time using the provided link.';
+    } else {
+      instructions = 'Chat will be available at the scheduled time.';
+    }
     
     res.status(201).json({
       status: consultation.status,
       consultationId: consultation.id,
-      roomUrl: consultation.room_url
+      roomUrl: consultation.room_url,
+      method: consultation.method,
+      fee: {
+        base: baseFee,
+        additional: voiceCallFee,
+        total: consultation.total_fee
+      },
+      instructions
     });
   } catch (error) {
     console.error('Error booking consultation:', error);
@@ -122,7 +144,15 @@ export const getMyConsultations = async (req, res) => {
         c.created_at,
         c.freelancer_id,
         f.id as freelancer_table_id,
-        f.name as freelancer_name
+        f.name as freelancer_name,
+        c.base_fee,
+        c.additional_fee,
+        c.total_fee,
+        CASE 
+          WHEN c.method = 'voice' THEN 'The lawyer will call you at the scheduled time.' 
+          WHEN c.method = 'video' THEN 'Join the video room at the scheduled time.' 
+          ELSE 'Chat will be available at the scheduled time.' 
+        END as instructions
       FROM consultations c
       LEFT JOIN freelancer f ON c.freelancer_id = f.id
       WHERE c.user_id = ${user[0].id}
@@ -282,3 +312,55 @@ export const submitFeedback = async (req, res) => {
     res.status(500).json({ error: 'Failed to submit feedback' });
   }
 }; 
+
+// Update consultation payment status - used by webhook
+export const updateConsultationPayment = async (consultationId, paymentInfo) => {
+  try {
+    const { paymentStatus, paymentId, paymentAmount } = paymentInfo;
+    
+    // Update the consultation with payment information
+    const result = await sql`
+      UPDATE consultations 
+      SET 
+        payment_status = ${paymentStatus},
+        payment_id = ${paymentId},
+        payment_amount = ${paymentAmount || null},
+        updated_at = NOW()
+      WHERE id = ${consultationId}
+      RETURNING id, status, payment_status
+    `;
+    
+    if (result.length === 0) {
+      throw new Error('Consultation not found');
+    }
+    
+    // If payment is successful, update consultation status if needed
+    if (paymentStatus === 'paid') {
+      // Only update if not already completed or cancelled
+      if (!['completed', 'cancelled'].includes(result[0].status)) {
+        await sql`
+          UPDATE consultations 
+          SET status = 'confirmed', updated_at = NOW()
+          WHERE id = ${consultationId}
+        `;
+      }
+    }
+    
+    // If payment failed, mark as pending payment
+    if (paymentStatus === 'failed') {
+      // Only update if not already completed or cancelled
+      if (!['completed', 'cancelled'].includes(result[0].status)) {
+        await sql`
+          UPDATE consultations 
+          SET status = 'payment_pending', updated_at = NOW()
+          WHERE id = ${consultationId}
+        `;
+      }
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error updating consultation payment:', error);
+    return { success: false, error: error.message };
+  }
+};

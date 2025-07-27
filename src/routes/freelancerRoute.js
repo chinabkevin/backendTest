@@ -1,12 +1,13 @@
 import express from 'express';
 import { registerFreelancer } from '../controllers/freelancerController.js';
-import { getFreelancers, getFreelancerById, deleteFreelancer, updateFreelancerProfile, setFreelancerAvailability, getFreelancerEarnings, getFreelancerRatings, updateFreelancerCredentials, listFreelancerCases, acceptCase, declineCase, completeCase, annotateCaseDocument, requestWithdrawal } from '../controllers/freelancerController.js';
+import { getFreelancers, getFreelancerById, deleteFreelancer, updateFreelancerProfile, setFreelancerAvailability, getFreelancerEarnings, getFreelancerRatings, updateFreelancerCredentials, listFreelancerCases, acceptCase, declineCase, completeCase, annotateCaseDocument, requestWithdrawal, searchFreelancers } from '../controllers/freelancerController.js';
 import { userExists } from '../middleware/userExists.js';
 
 const router = express.Router();
 
 router.post('/register', userExists, registerFreelancer );
 router.get('/', getFreelancers);
+router.get('/search', searchFreelancers);
 router.get('/:userId', getFreelancerById);
 router.delete('/:userId', deleteFreelancer);
 router.put('/update/:userId', updateFreelancerProfile);
