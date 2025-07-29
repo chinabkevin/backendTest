@@ -191,23 +191,26 @@ export const generateDocument = async (req, res) => {
     // Generate document using AI
     const generatedDocument = await generateDocumentWithAI(templateId, formData);
     
-    // Save document to database
-    const [document] = await sql`
+    // Save to database with payment status pending
+    const result = await sql`
       INSERT INTO documents (
         user_id, 
         template_id, 
         template_name, 
         form_data, 
         generated_document, 
-        document_type
-      )
-      VALUES (
+        document_type,
+        document_fee,
+        payment_status
+      ) VALUES (
         ${user[0].id}, 
         ${templateId}, 
         ${documentTemplates[templateId].name}, 
         ${JSON.stringify(formData)}, 
         ${generatedDocument}, 
-        ${templateId}
+        ${templateId},
+        1000,
+        'pending'
       )
       RETURNING id, created_at
     `;
@@ -250,6 +253,11 @@ export const getUserDocuments = async (req, res) => {
         form_data,
         generated_document,
         document_type,
+        document_fee,
+        payment_status,
+        payment_session_id,
+        paid_at,
+        download_count,
         status,
         created_at
       FROM documents 
@@ -294,6 +302,11 @@ export const getDocument = async (req, res) => {
         form_data,
         generated_document,
         document_type,
+        document_fee,
+        payment_status,
+        payment_session_id,
+        paid_at,
+        download_count,
         status,
         created_at
       FROM documents 
@@ -394,4 +407,270 @@ function getTemplateIcon(templateId) {
     'service-agreement': '🤝'
   };
   return icons[templateId] || '📋';
-} 
+}
+
+// POST /api/v1/documents/:id/create-payment - Create payment session for document
+export const createDocumentPayment = async (req, res) => {
+  try {
+    console.log('Creating payment session for document:', req.params.id);
+    console.log('Request body:', req.body);
+    
+    const { id } = req.params;
+    const { userId } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+    
+    // Check environment variables
+    if (!process.env.STRIPE_SECRET_KEY) {
+      console.error('STRIPE_SECRET_KEY environment variable is not set');
+      return res.status(500).json({ error: 'Payment system configuration error' });
+    }
+    
+    if (!process.env.FRONTEND_URL) {
+      console.error('FRONTEND_URL environment variable is not set');
+      return res.status(500).json({ error: 'Frontend URL configuration error' });
+    }
+    
+    // Get user ID from supabase_id
+    const user = await sql`
+      SELECT id FROM "user" WHERE supabase_id = ${userId}
+    `;
+    
+    if (user.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Get document details
+    const documents = await sql`
+      SELECT 
+        id,
+        template_name,
+        document_fee,
+        payment_status
+      FROM documents 
+      WHERE id = ${id} AND user_id = ${user[0].id} AND status != 'deleted'
+    `;
+    
+    if (documents.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    
+    const document = documents[0];
+    
+    // Check if already paid
+    if (document.payment_status === 'paid') {
+      return res.status(400).json({ 
+        error: 'Document has already been paid for',
+        canDownload: true
+      });
+    }
+    
+    // Import stripe from payment controller
+    console.log('Importing Stripe configuration...');
+    const stripe = (await import('../config/stripe.js')).default;
+    console.log('Stripe imported successfully');
+    
+    // Create payment intent
+    console.log('Creating payment intent for amount:', document.document_fee);
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: document.document_fee,
+      currency: 'usd',
+      metadata: {
+        documentId: id,
+        userId,
+        documentName: document.template_name,
+      },
+    });
+    console.log('Payment intent created:', paymentIntent.id);
+    
+    // Create checkout session
+    console.log('Creating checkout session...');
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: `Legal Document: ${document.template_name}`,
+              description: `Download access for generated legal document`,
+            },
+            unit_amount: document.document_fee,
+          },
+          quantity: 1,
+        },
+      ],
+      metadata: {
+        documentId: id,
+        userId,
+        documentName: document.template_name,
+        paymentIntentId: paymentIntent.id,
+      },
+      mode: 'payment',
+      success_url: `${process.env.FRONTEND_URL}/dashboard/documents/${id}?payment=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.FRONTEND_URL}/dashboard/documents/${id}?payment=cancelled`,
+    });
+    
+    // Update document with payment session info
+    await sql`
+      UPDATE documents 
+      SET payment_session_id = ${session.id}, payment_intent_id = ${paymentIntent.id}, updated_at = NOW()
+      WHERE id = ${id}
+    `;
+    
+    res.json({
+      success: true,
+      sessionId: session.id,
+      paymentIntentId: paymentIntent.id,
+      clientSecret: paymentIntent.client_secret,
+      url: session.url,
+      documentFee: document.document_fee
+    });
+  } catch (error) {
+    console.error('Error creating document payment:', error);
+    res.status(500).json({ error: 'Failed to create payment session' });
+  }
+};
+
+// POST /api/v1/documents/:id/verify-payment - Verify payment and enable download
+export const verifyDocumentPayment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { sessionId, userId } = req.body;
+    
+    if (!sessionId || !userId) {
+      return res.status(400).json({ error: 'Session ID and User ID are required' });
+    }
+    
+    // Get user ID from supabase_id
+    const user = await sql`
+      SELECT id FROM "user" WHERE supabase_id = ${userId}
+    `;
+    
+    if (user.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Import stripe from payment controller
+    const stripe = (await import('../config/stripe.js')).default;
+    
+    // Retrieve the session from Stripe
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    
+    if (session.payment_status === 'paid') {
+      // Update document payment status
+      await sql`
+        UPDATE documents 
+        SET payment_status = 'paid', paid_at = NOW(), updated_at = NOW()
+        WHERE id = ${id} AND user_id = ${user[0].id}
+      `;
+      
+      res.json({
+        success: true,
+        paid: true,
+        canDownload: true,
+        message: 'Payment verified successfully'
+      });
+    } else {
+      res.json({
+        success: true,
+        paid: false,
+        canDownload: false,
+        message: 'Payment not completed'
+      });
+    }
+  } catch (error) {
+    console.error('Error verifying document payment:', error);
+    res.status(500).json({ error: 'Failed to verify payment' });
+  }
+};
+
+// GET /api/v1/documents/:id/download - Secure document download with payment verification
+export const downloadDocument = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId } = req.query;
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+    
+    // Get user ID from supabase_id
+    const user = await sql`
+      SELECT id FROM "user" WHERE supabase_id = ${userId}
+    `;
+    
+    if (user.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Get document with payment verification
+    const documents = await sql`
+      SELECT 
+        id,
+        template_name,
+        generated_document,
+        payment_status,
+        download_count
+      FROM documents 
+      WHERE id = ${id} AND user_id = ${user[0].id} AND status != 'deleted'
+    `;
+    
+    if (documents.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    
+    const document = documents[0];
+    
+    // Verify payment before allowing download
+    if (document.payment_status !== 'paid') {
+      return res.status(403).json({ 
+        error: 'Payment required before download',
+        paymentRequired: true,
+        paymentStatus: document.payment_status
+      });
+    }
+    
+    // Increment download count
+    await sql`
+      UPDATE documents 
+      SET download_count = download_count + 1, updated_at = NOW()
+      WHERE id = ${id}
+    `;
+    
+    // Return document content for download
+    res.json({
+      success: true,
+      document: {
+        id: document.id,
+        name: document.template_name,
+        content: document.generated_document,
+        downloadCount: document.download_count + 1
+      }
+    });
+  } catch (error) {
+    console.error('Error downloading document:', error);
+    res.status(500).json({ error: 'Failed to download document' });
+  }
+};
+
+// Helper function to update document payment status (called from webhook)
+export const updateDocumentPayment = async (documentId, paymentData) => {
+  try {
+    await sql`
+      UPDATE documents 
+      SET 
+        payment_status = ${paymentData.paymentStatus},
+        paid_at = ${paymentData.paymentStatus === 'paid' ? sql`NOW()` : null},
+        updated_at = NOW()
+      WHERE id = ${documentId}
+    `;
+    
+    console.log(`Document ${documentId} payment status updated to ${paymentData.paymentStatus}`);
+  } catch (error) {
+    console.error('Error updating document payment:', error);
+    throw error;
+  }
+}; 

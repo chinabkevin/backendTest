@@ -93,6 +93,12 @@ export async function initDB() {
         form_data JSONB NOT NULL,
         generated_document TEXT NOT NULL,
         document_type VARCHAR(50) NOT NULL,
+        document_fee INTEGER DEFAULT 1000,
+        payment_status VARCHAR(20) DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'failed', 'refunded')),
+        payment_session_id VARCHAR(255),
+        payment_intent_id VARCHAR(255),
+        paid_at TIMESTAMPTZ,
+        download_count INTEGER DEFAULT 0,
         status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'archived', 'deleted')),
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW()

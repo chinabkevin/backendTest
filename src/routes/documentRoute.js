@@ -4,7 +4,10 @@ import {
   getUserDocuments, 
   getDocument, 
   deleteDocument,
-  getDocumentTemplates
+  getDocumentTemplates,
+  createDocumentPayment,
+  verifyDocumentPayment,
+  downloadDocument
 } from '../controllers/documentController.js';
 
 const router = express.Router();
@@ -20,6 +23,15 @@ router.get('/user', getUserDocuments);
 
 // GET /api/v1/documents/:id - Get specific document
 router.get('/:id', getDocument);
+
+// POST /api/v1/documents/:id/create-payment - Create payment session for document
+router.post('/:id/create-payment', createDocumentPayment);
+
+// POST /api/v1/documents/:id/verify-payment - Verify payment and enable download
+router.post('/:id/verify-payment', verifyDocumentPayment);
+
+// GET /api/v1/documents/:id/download - Secure document download with payment verification
+router.get('/:id/download', downloadDocument);
 
 // DELETE /api/v1/documents/:id - Delete document (soft delete)
 router.delete('/:id', deleteDocument);

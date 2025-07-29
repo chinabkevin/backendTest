@@ -159,25 +159,33 @@ export const handleStripeWebhook = async (req, res) => {
 // Handle successful checkout completion
 const handleCompletedCheckout = async (session) => {
   try {
-    // Get the consultation ID from the metadata
-    const { consultationId } = session.metadata;
+    const { consultationId, documentId } = session.metadata;
     
-    if (!consultationId) {
-      console.error('No consultationId found in session metadata');
-      return;
+    if (consultationId) {
+      // Handle consultation payment
+      const { updateConsultationPayment } = await import('./consultationController.js');
+      
+      await updateConsultationPayment(consultationId, {
+        paymentStatus: 'paid',
+        paymentId: session.id,
+        paymentAmount: session.amount_total,
+      });
+
+      console.log(`Payment confirmed for consultation ${consultationId}`);
+    } else if (documentId) {
+      // Handle document payment
+      const { updateDocumentPayment } = await import('./documentController.js');
+      
+      await updateDocumentPayment(documentId, {
+        paymentStatus: 'paid',
+        paymentId: session.id,
+        paymentAmount: session.amount_total,
+      });
+
+      console.log(`Payment confirmed for document ${documentId}`);
+    } else {
+      console.error('No consultationId or documentId found in session metadata');
     }
-
-    // Import dynamically to avoid circular dependencies
-    const { updateConsultationPayment } = await import('./consultationController.js');
-    
-    // Update the consultation status in the database
-    await updateConsultationPayment(consultationId, {
-      paymentStatus: 'paid',
-      paymentId: session.id,
-      paymentAmount: session.amount_total,
-    });
-
-    console.log(`Payment confirmed for consultation ${consultationId}`);
   } catch (error) {
     console.error('Error handling completed checkout:', error);
   }
@@ -186,24 +194,31 @@ const handleCompletedCheckout = async (session) => {
 // Handle failed payment
 const handleFailedPayment = async (paymentIntent) => {
   try {
-    // Get metadata from the payment intent
-    const { consultationId } = paymentIntent.metadata;
+    const { consultationId, documentId } = paymentIntent.metadata;
     
-    if (!consultationId) {
-      console.error('No consultationId found in payment intent metadata');
-      return;
+    if (consultationId) {
+      // Handle consultation payment failure
+      const { updateConsultationPayment } = await import('./consultationController.js');
+      
+      await updateConsultationPayment(consultationId, {
+        paymentStatus: 'failed',
+        paymentId: paymentIntent.id,
+      });
+
+      console.log(`Payment failed for consultation ${consultationId}`);
+    } else if (documentId) {
+      // Handle document payment failure
+      const { updateDocumentPayment } = await import('./documentController.js');
+      
+      await updateDocumentPayment(documentId, {
+        paymentStatus: 'failed',
+        paymentId: paymentIntent.id,
+      });
+
+      console.log(`Payment failed for document ${documentId}`);
+    } else {
+      console.error('No consultationId or documentId found in payment intent metadata');
     }
-
-    // Import dynamically to avoid circular dependencies
-    const { updateConsultationPayment } = await import('./consultationController.js');
-    
-    // Update the consultation status in the database
-    await updateConsultationPayment(consultationId, {
-      paymentStatus: 'failed',
-      paymentId: paymentIntent.id,
-    });
-
-    console.log(`Payment failed for consultation ${consultationId}`);
   } catch (error) {
     console.error('Error handling failed payment:', error);
   }

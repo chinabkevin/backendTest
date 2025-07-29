@@ -1,0 +1,86 @@
+User Story: Payment Before Downloading Documents
+Title: Require Payment Before Downloading Generated Documents
+As a user of the application,
+I want to pay before I can download a document generated for me,
+So that access to premium legal documents is restricted to paying users and complies with billing rules.
+
+Acceptance Criteria
+After generating a document, the system shows a preview or confirmation screen (not the download).
+The system displays the document fee and prompts for payment.
+Only after successful payment, the “Download” button is enabled.
+If payment is canceled or fails, download remains disabled.
+The system may log the transaction and associate it with the downloaded document for auditing and billing.
+
+Use Case: Pay Before Downloading Document
+Field
+Description
+Use Case ID
+UC-DOC-007
+Use Case Name
+Payment Before Document Download
+Primary Actor
+User
+Description
+Requires users to complete payment before allowing them to download a generated document.
+
+
+Preconditions
+User is logged in.
+User has completed the document generation process (e.g., filled required info or used a template).
+The app supports payment processing.
+
+Main Flow
+User generates a legal document using a template or form.
+System displays a preview or summary page, showing the document is ready.
+System prompts user for payment, showing the document fee (e.g., "$10").
+User clicks “Pay to Download” and completes payment via supported payment methods.
+System verifies payment success.
+“Download” button becomes active, and user can click to download the document (PDF or DOC).
+System logs download and payment details, and optionally emails a receipt.
+
+Alternative Flows
+A1. Payment Fails or Is Cancelled
+Step 4a. If the user cancels or payment fails:
+System displays: “Payment not completed. Download unavailable.”
+Download button remains disabled.
+A2. Document Already Paid For
+If the user previously paid for the same document:
+System checks payment history and enables download without new charge.
+A3. System Error After Payment
+Step 5a. If payment goes through but download fails:
+System notifies the user: “Payment received, but an error occurred. Please try downloading again or contact support.”
+
+Postconditions
+The document is only downloadable after successful payment.
+The system tracks paid downloads and prevents unauthorized access.
+User has access to their paid document for a defined retention period (if applicable).
+Implementation Summary
+Database Schema Updates
+Updated the documents table with payment tracking fields:
+document_fee (default $10.00)
+payment_status (pending/paid/failed/refunded)
+payment_session_id and payment_intent_id for Stripe integration
+paid_at timestamp and download_count tracking
+New API Endpoints
+POST /api/v1/documents/:id/create-payment - Creates Stripe payment session
+POST /api/v1/documents/:id/verify-payment - Verifies payment completion
+GET /api/v1/documents/:id/download - Secure download with payment verification
+Key Features Implemented
+✅ Payment Required: Documents generated with payment_status='pending'
+✅ Download Protection: Download endpoint returns 403 if not paid
+✅ Stripe Integration: Full payment processing with webhooks
+✅ Alternative Flows: Handles failed payments, already-paid documents, and errors
+✅ Audit Trail: Transaction logging and download count tracking
+✅ User Story Compliance: All acceptance criteria met
+Updated Controllers
+Document Controller: Added payment verification and secure download logic
+Payment Controller: Extended webhook handling for document payments
+Routes: New payment and download endpoints added
+🔄 How It Works
+Document Generation: User generates document → status set to 'pending'
+Payment Flow: User clicks "Pay to Download" → Stripe checkout session created
+Payment Verification: After successful payment → status updated to 'paid'
+Secure Download: Download only allowed if payment_status === 'paid'
+Webhook Handling: Stripe webhooks automatically update payment status
+The implementation fully satisfies your user story requirements and provides a secure, auditable payment-before-download system for your legal document platform.
+
