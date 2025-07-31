@@ -39,7 +39,7 @@ async function generateAIResponse(messages, model = 'deepseek/deepseek-r1:free')
         'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
         'HTTP-Referer': process.env.BASE_URL || 'http://localhost:3000',
-        'X-Title': 'LegaliQ AI Assistant'
+        'X-Title': 'advoqat AI Assistant'
       },
       body: JSON.stringify({
         model: model,

@@ -141,7 +141,7 @@ async function generateDocumentWithAI(templateId, formData) {
         'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
         'HTTP-Referer': process.env.BASE_URL || 'http://localhost:3000',
-        'X-Title': 'LegaliQ Document Generator'
+        'X-Title': 'advoqat Document Generator'
       },
       body: JSON.stringify({
         model: 'deepseek/deepseek-chat-v3-0324:free',
@@ -818,7 +818,7 @@ export const updateDocumentPayment = async (documentId, paymentData) => {
 // GET /api/v1/documents/recent - Get recent documents for user
 export const getRecentDocuments = async (req, res) => {
   try {
-    const { userId, limit = 5 } = req.query;
+    const { userId, limit = 3, offset = 0 } = req.query;
 
     if (!userId) {
       return res.status(400).json({ error: 'UserId is required' });
@@ -833,26 +833,41 @@ export const getRecentDocuments = async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Get recent documents for the user
+    // Get recent documents for the user with pagination
     const documents = await sql`
       SELECT 
         id,
         template_name,
-        status,
+        payment_status as status,
         created_at,
         updated_at
       FROM documents 
       WHERE user_id = ${user[0].id}
       ORDER BY created_at DESC
       LIMIT ${parseInt(limit)}
+      OFFSET ${parseInt(offset)}
+    `;
+
+    // Get total count for pagination
+    const totalCount = await sql`
+      SELECT COUNT(*) as total
+      FROM documents 
+      WHERE user_id = ${user[0].id}
     `;
 
     res.json({
       success: true,
-      documents: documents
+      documents: documents,
+      total: totalCount[0]?.total || 0,
+      hasMore: (parseInt(offset) + parseInt(limit)) < (totalCount[0]?.total || 0)
     });
   } catch (error) {
     console.error('Error fetching recent documents:', error);
-    res.status(500).json({ error: 'Failed to fetch recent documents' });
+    console.error('Error details:', error.message);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ 
+      error: 'Failed to fetch recent documents',
+      details: error.message 
+    });
   }
 }; 

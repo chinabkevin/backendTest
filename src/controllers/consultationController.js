@@ -71,7 +71,7 @@ export const bookConsultation = async (req, res) => {
     
     // Generate room URL for video consultations
     const roomUrl = method === 'video' 
-      ? `https://meet.jit.si/legaliq-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      ? `https://meet.jit.si/advoqat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       : null;
     
     // Calculate additional fee for voice call
@@ -368,7 +368,7 @@ export const updateConsultationPayment = async (consultationId, paymentInfo) => 
 // GET /api/consultations/recent - Get recent consultations for user
 export const getRecentConsultations = async (req, res) => {
   try {
-    const { userId, limit = 5 } = req.query;
+    const { userId, limit = 3, offset = 0 } = req.query;
 
     if (!userId) {
       return res.status(400).json({ error: 'UserId is required' });
@@ -383,7 +383,7 @@ export const getRecentConsultations = async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Get recent consultations for the user
+    // Get recent consultations for the user with pagination
     const consultations = await sql`
       SELECT 
         c.id,
@@ -396,11 +396,21 @@ export const getRecentConsultations = async (req, res) => {
       WHERE c.user_id = ${user[0].id}
       ORDER BY c.created_at DESC
       LIMIT ${parseInt(limit)}
+      OFFSET ${parseInt(offset)}
+    `;
+
+    // Get total count for pagination
+    const totalCount = await sql`
+      SELECT COUNT(*) as total
+      FROM consultations c
+      WHERE c.user_id = ${user[0].id}
     `;
 
     res.json({
       success: true,
-      consultations: consultations
+      consultations: consultations,
+      total: totalCount[0]?.total || 0,
+      hasMore: (parseInt(offset) + parseInt(limit)) < (totalCount[0]?.total || 0)
     });
   } catch (error) {
     console.error('Error fetching recent consultations:', error);

@@ -1,7 +1,7 @@
 {
   "info": {
-    "name": "LegaliQ Consultation API",
-    "description": "API collection for LegaliQ consultation features",
+      "name": "advoqat Consultation API",
+  "description": "API collection for advoqat consultation features",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [

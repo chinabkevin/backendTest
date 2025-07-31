@@ -44,7 +44,7 @@ export const uploadImageToCloudinary = async (file, options = {}) => {
     }
 
     const uploadOptions = {
-      folder: 'legaliq-profiles',
+      folder: 'advoqat-profiles',
       ...options
     };
 

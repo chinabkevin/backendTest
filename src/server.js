@@ -32,8 +32,8 @@ const corsOptions = {
     const allowedOrigins = [
       "http://localhost:3000", 
       "https://private-repo-sand.vercel.app",
-      "https://legaliq.vercel.app",
-      "https://legaliq-frontend.vercel.app",
+          "https://advoqat.vercel.app",
+    "https://advoqat-frontend.vercel.app",
       process.env.CORS_ORIGIN
     ].filter(Boolean);
     

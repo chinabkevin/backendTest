@@ -12,7 +12,7 @@ User Flow Overview
 | 6. Feedback (optional) | User rates consultation experience    | `POST /api/consultations/:id/feedback` |
 
 
-API DESIGN FOR LEGALIQ CONSULTATIONS
+API DESIGN FOR ADVOQAT CONSULTATIONS
 
 📘 1. GET /api/lawyers
 Returns a list of available legal professionals.
@@ -55,7 +55,7 @@ Response:
     "lawyerName": "Sarah Okello",
     "datetime": "2025-07-12T15:00:00Z",
     "method": "video",
-    "roomUrl": "https://meet.jit.si/legaliq-xyz",
+    "roomUrl": "https://meet.jit.si/advoqat-xyz",
     "status": "confirmed"
   }
 ]
