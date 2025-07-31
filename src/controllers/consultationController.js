@@ -364,3 +364,46 @@ export const updateConsultationPayment = async (consultationId, paymentInfo) => 
     return { success: false, error: error.message };
   }
 };
+
+// GET /api/consultations/recent - Get recent consultations for user
+export const getRecentConsultations = async (req, res) => {
+  try {
+    const { userId, limit = 5 } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'UserId is required' });
+    }
+
+    // Get user ID from supabase_id
+    const user = await sql`
+      SELECT id FROM "user" WHERE supabase_id = ${userId}
+    `;
+    
+    if (user.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Get recent consultations for the user
+    const consultations = await sql`
+      SELECT 
+        c.id,
+        c.status,
+        c.created_at,
+        c.updated_at,
+        f.name as lawyer_name
+      FROM consultations c
+      LEFT JOIN freelancer f ON c.freelancer_id = f.id
+      WHERE c.user_id = ${user[0].id}
+      ORDER BY c.created_at DESC
+      LIMIT ${parseInt(limit)}
+    `;
+
+    res.json({
+      success: true,
+      consultations: consultations
+    });
+  } catch (error) {
+    console.error('Error fetching recent consultations:', error);
+    res.status(500).json({ error: 'Failed to fetch recent consultations' });
+  }
+};

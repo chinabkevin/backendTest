@@ -110,19 +110,31 @@ Format the document professionally with proper legal language and structure.`
 
 // Generate document using DeepSeek R1 AI model
 async function generateDocumentWithAI(templateId, formData) {
+  console.log('generateDocumentWithAI called with templateId:', templateId);
+  
   const template = documentTemplates[templateId];
   if (!template) {
+    console.error('Template not found for ID:', templateId);
     throw new Error('Invalid template ID');
   }
 
+  console.log('Template found:', template.name);
+
   // Replace placeholders in the prompt with form data
   let prompt = template.prompt;
+  console.log('Original prompt length:', prompt.length);
+  
   Object.keys(formData).forEach(key => {
     const placeholder = `{${key}}`;
-    prompt = prompt.replace(new RegExp(placeholder, 'g'), formData[key] || '');
+    const value = formData[key] || '';
+    prompt = prompt.replace(new RegExp(placeholder, 'g'), value);
+    console.log(`Replaced ${placeholder} with: ${value}`);
   });
 
+  console.log('Final prompt length:', prompt.length);
+
   try {
+    console.log('Making request to OpenRouter API...');
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -148,36 +160,53 @@ async function generateDocumentWithAI(templateId, formData) {
       })
     });
 
+    console.log('OpenRouter API response status:', response.status);
+
     if (!response.ok) {
       const errorData = await response.text();
       console.error('OpenRouter API error:', errorData);
-      throw new Error('Failed to generate document with AI');
+      throw new Error(`Failed to generate document with AI: ${response.status} ${errorData}`);
     }
 
     const data = await response.json();
-    return data.choices[0].message.content;
+    console.log('OpenRouter API response received, choices:', data.choices?.length || 0);
+    
+    if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+      console.error('Invalid response from OpenRouter API:', data);
+      throw new Error('Invalid response from AI service');
+    }
+    
+    const content = data.choices[0].message.content;
+    console.log('Generated document content length:', content.length);
+    
+    return content;
   } catch (error) {
     console.error('Error generating document with AI:', error);
-    throw new Error('Failed to generate document with AI');
+    console.error('Error stack:', error.stack);
+    throw new Error(`Failed to generate document with AI: ${error.message}`);
   }
 }
 
 // POST /api/v1/documents/generate - Generate a new document
 export const generateDocument = async (req, res) => {
   try {
-    const { templateId, formData, userId } = req.body;
+    const { templateId, formData, userId, paymentSessionId } = req.body;
     
-    console.log('generateDocument called with:', { templateId, userId });
+    console.log('generateDocument called with:', { templateId, userId, formDataKeys: Object.keys(formData || {}), paymentSessionId });
     
     // Validate required fields
     if (!templateId || !formData || !userId) {
+      console.error('Missing required fields:', { templateId: !!templateId, formData: !!formData, userId: !!userId });
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
     // Validate template exists
     if (!documentTemplates[templateId]) {
+      console.error('Invalid template ID:', templateId);
       return res.status(400).json({ error: 'Invalid template ID' });
     }
+
+    console.log('Template found:', documentTemplates[templateId].name);
 
     // Get user ID from supabase_id
     const user = await sql`
@@ -185,13 +214,38 @@ export const generateDocument = async (req, res) => {
     `;
     
     if (user.length === 0) {
+      console.error('User not found for supabase_id:', userId);
       return res.status(404).json({ error: 'User not found' });
     }
 
+    console.log('User found with ID:', user[0].id);
+
     // Generate document using AI
+    console.log('Generating document with AI...');
     const generatedDocument = await generateDocumentWithAI(templateId, formData);
+    console.log('Document generated successfully, length:', generatedDocument.length);
     
-    // Save to database with payment status pending
+    // Save to database with appropriate payment status
+    console.log('Saving document to database...');
+    
+    let paymentStatus = 'pending';
+    let paidAt = null;
+    
+    // If payment session ID is provided, verify payment and mark as paid
+    if (paymentSessionId) {
+      try {
+        const stripe = (await import('../config/stripe.js')).default;
+        const session = await stripe.checkout.sessions.retrieve(paymentSessionId);
+        
+        if (session.payment_status === 'paid') {
+          paymentStatus = 'paid';
+          paidAt = new Date();
+        }
+      } catch (error) {
+        console.error('Error verifying payment session:', error);
+      }
+    }
+    
     const result = await sql`
       INSERT INTO documents (
         user_id, 
@@ -201,7 +255,9 @@ export const generateDocument = async (req, res) => {
         generated_document, 
         document_type,
         document_fee,
-        payment_status
+        payment_status,
+        payment_session_id,
+        paid_at
       ) VALUES (
         ${user[0].id}, 
         ${templateId}, 
@@ -210,20 +266,28 @@ export const generateDocument = async (req, res) => {
         ${generatedDocument}, 
         ${templateId},
         1000,
-        'pending'
+        ${paymentStatus},
+        ${paymentSessionId || null},
+        ${paidAt}
       )
       RETURNING id, created_at
     `;
 
+    console.log('Document saved to database with ID:', result[0].id);
+
     res.status(201).json({
       success: true,
       document: generatedDocument,
-      documentId: document.id,
+      documentId: result[0].id,
       message: 'Document generated successfully'
     });
   } catch (error) {
     console.error('Error generating document:', error);
-    res.status(500).json({ error: 'Failed to generate document' });
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ 
+      error: 'Failed to generate document',
+      details: error.message 
+    });
   }
 };
 
@@ -281,6 +345,8 @@ export const getDocument = async (req, res) => {
     const { id } = req.params;
     const { userId } = req.query;
     
+    console.log('Fetching document:', id, 'for user:', userId);
+    
     if (!userId) {
       return res.status(400).json({ error: 'User ID is required' });
     }
@@ -291,8 +357,11 @@ export const getDocument = async (req, res) => {
     `;
     
     if (user.length === 0) {
+      console.log('User not found for supabase_id:', userId);
       return res.status(404).json({ error: 'User not found' });
     }
+    
+    console.log('Found user with ID:', user[0].id);
     
     const documents = await sql`
       SELECT 
@@ -313,13 +382,19 @@ export const getDocument = async (req, res) => {
       WHERE id = ${id} AND user_id = ${user[0].id} AND status != 'deleted'
     `;
     
+    console.log('Found documents:', documents.length);
+    
     if (documents.length === 0) {
+      console.log('Document not found for ID:', id, 'and user_id:', user[0].id);
       return res.status(404).json({ error: 'Document not found' });
     }
     
+    const document = documents[0];
+    console.log('Document payment status:', document.payment_status);
+    
     res.json({
       success: true,
-      document: documents[0]
+      document: document
     });
   } catch (error) {
     console.error('Error fetching document:', error);
@@ -416,7 +491,7 @@ export const createDocumentPayment = async (req, res) => {
     console.log('Request body:', req.body);
     
     const { id } = req.params;
-    const { userId } = req.body;
+    const { userId, templateId, formData, generatedDocument } = req.body;
     
     if (!userId) {
       return res.status(400).json({ error: 'User ID is required' });
@@ -442,29 +517,57 @@ export const createDocumentPayment = async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
     
-    // Get document details
-    const documents = await sql`
-      SELECT 
-        id,
-        template_name,
-        document_fee,
-        payment_status
-      FROM documents 
-      WHERE id = ${id} AND user_id = ${user[0].id} AND status != 'deleted'
-    `;
+    let document;
+    let documentFee = 999; // Default fee for generated documents ($9.99)
+    let templateName = 'Generated Document';
     
-    if (documents.length === 0) {
-      return res.status(404).json({ error: 'Document not found' });
-    }
-    
-    const document = documents[0];
-    
-    // Check if already paid
-    if (document.payment_status === 'paid') {
-      return res.status(400).json({ 
-        error: 'Document has already been paid for',
-        canDownload: true
-      });
+    // Handle generated document payment (when id is 'temp')
+    if (id === 'temp') {
+      if (!templateId || !formData || !generatedDocument) {
+        return res.status(400).json({ error: 'Template ID, form data, and generated document are required for generated document payment' });
+      }
+      
+      // Get template details
+      const templates = await sql`
+        SELECT name, document_fee FROM document_templates WHERE id = ${templateId}
+      `;
+      
+      if (templates.length > 0) {
+        templateName = templates[0].name;
+        documentFee = templates[0].document_fee || 999;
+      }
+      
+      document = {
+        id: 'temp',
+        template_name: templateName,
+        document_fee: documentFee,
+        payment_status: 'pending'
+      };
+    } else {
+      // Handle existing document payment
+      const documents = await sql`
+        SELECT 
+          id,
+          template_name,
+          document_fee,
+          payment_status
+        FROM documents 
+        WHERE id = ${id} AND user_id = ${user[0].id} AND status != 'deleted'
+      `;
+      
+      if (documents.length === 0) {
+        return res.status(404).json({ error: 'Document not found' });
+      }
+      
+      document = documents[0];
+      
+      // Check if already paid
+      if (document.payment_status === 'paid') {
+        return res.status(400).json({ 
+          error: 'Document has already been paid for',
+          canDownload: true
+        });
+      }
     }
     
     // Import stripe from payment controller
@@ -479,7 +582,7 @@ export const createDocumentPayment = async (req, res) => {
       currency: 'usd',
       metadata: {
         documentId: id,
-        userId,
+        userId: user[0].id.toString(), // Use database user ID
         documentName: document.template_name,
       },
     });
@@ -504,21 +607,31 @@ export const createDocumentPayment = async (req, res) => {
       ],
       metadata: {
         documentId: id,
-        userId,
+        userId: user[0].id.toString(), // Use database user ID
         documentName: document.template_name,
         paymentIntentId: paymentIntent.id,
+        isGeneratedDocument: id === 'temp' ? 'true' : 'false',
+        templateId: templateId || null,
+        formData: formData ? JSON.stringify(formData) : null,
+        generatedDocument: generatedDocument || null,
       },
       mode: 'payment',
-      success_url: `${process.env.FRONTEND_URL}/dashboard/documents/${id}?payment=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.FRONTEND_URL}/dashboard/documents/${id}?payment=cancelled`,
+      success_url: id === 'temp' 
+        ? `${process.env.FRONTEND_URL}/dashboard/documents?payment=success&session_id={CHECKOUT_SESSION_ID}&generated=true`
+        : `${process.env.FRONTEND_URL}/dashboard/documents/${id}?payment=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: id === 'temp'
+        ? `${process.env.FRONTEND_URL}/dashboard/documents?payment=cancelled`
+        : `${process.env.FRONTEND_URL}/dashboard/documents/${id}?payment=cancelled`,
     });
     
-    // Update document with payment session info
-    await sql`
-      UPDATE documents 
-      SET payment_session_id = ${session.id}, payment_intent_id = ${paymentIntent.id}, updated_at = NOW()
-      WHERE id = ${id}
-    `;
+    // Update document with payment session info (only for existing documents)
+    if (id !== 'temp') {
+      await sql`
+        UPDATE documents 
+        SET payment_session_id = ${session.id}, payment_intent_id = ${paymentIntent.id}, updated_at = NOW()
+        WHERE id = ${id}
+      `;
+    }
     
     res.json({
       success: true,
@@ -559,20 +672,35 @@ export const verifyDocumentPayment = async (req, res) => {
     // Retrieve the session from Stripe
     const session = await stripe.checkout.sessions.retrieve(sessionId);
     
+    console.log('Stripe session payment status:', session.payment_status);
+    console.log('Session metadata:', session.metadata);
+    
     if (session.payment_status === 'paid') {
       // Update document payment status
-      await sql`
+      const updateResult = await sql`
         UPDATE documents 
         SET payment_status = 'paid', paid_at = NOW(), updated_at = NOW()
         WHERE id = ${id} AND user_id = ${user[0].id}
+        RETURNING id, payment_status
       `;
       
-      res.json({
-        success: true,
-        paid: true,
-        canDownload: true,
-        message: 'Payment verified successfully'
-      });
+      console.log('Document payment update result:', updateResult);
+      
+      if (updateResult.length > 0) {
+        res.json({
+          success: true,
+          paid: true,
+          canDownload: true,
+          message: 'Payment verified successfully'
+        });
+      } else {
+        res.json({
+          success: false,
+          paid: false,
+          canDownload: false,
+          message: 'Document not found or update failed'
+        });
+      }
     } else {
       res.json({
         success: true,
@@ -591,10 +719,18 @@ export const verifyDocumentPayment = async (req, res) => {
 export const downloadDocument = async (req, res) => {
   try {
     const { id } = req.params;
-    const { userId } = req.query;
+    const { userId, format = 'pdf' } = req.query;
+    
+    console.log('Download request for document:', id, 'format:', format, 'user:', userId);
     
     if (!userId) {
       return res.status(400).json({ error: 'User ID is required' });
+    }
+    
+    // Validate format
+    const validFormats = ['pdf', 'docx', 'txt'];
+    if (!validFormats.includes(format)) {
+      return res.status(400).json({ error: 'Invalid format. Supported formats: pdf, docx, txt' });
     }
     
     // Get user ID from supabase_id
@@ -640,6 +776,9 @@ export const downloadDocument = async (req, res) => {
       WHERE id = ${id}
     `;
     
+    // Log the export
+    console.log(`Document ${id} exported in ${format} format by user ${userId}`);
+    
     // Return document content for download
     res.json({
       success: true,
@@ -647,7 +786,8 @@ export const downloadDocument = async (req, res) => {
         id: document.id,
         name: document.template_name,
         content: document.generated_document,
-        downloadCount: document.download_count + 1
+        downloadCount: document.download_count + 1,
+        format: format
       }
     });
   } catch (error) {
@@ -672,5 +812,47 @@ export const updateDocumentPayment = async (documentId, paymentData) => {
   } catch (error) {
     console.error('Error updating document payment:', error);
     throw error;
+  }
+}; 
+
+// GET /api/v1/documents/recent - Get recent documents for user
+export const getRecentDocuments = async (req, res) => {
+  try {
+    const { userId, limit = 5 } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'UserId is required' });
+    }
+
+    // Get user ID from supabase_id
+    const user = await sql`
+      SELECT id FROM "user" WHERE supabase_id = ${userId}
+    `;
+    
+    if (user.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Get recent documents for the user
+    const documents = await sql`
+      SELECT 
+        id,
+        template_name,
+        status,
+        created_at,
+        updated_at
+      FROM documents 
+      WHERE user_id = ${user[0].id}
+      ORDER BY created_at DESC
+      LIMIT ${parseInt(limit)}
+    `;
+
+    res.json({
+      success: true,
+      documents: documents
+    });
+  } catch (error) {
+    console.error('Error fetching recent documents:', error);
+    res.status(500).json({ error: 'Failed to fetch recent documents' });
   }
 }; 

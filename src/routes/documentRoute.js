@@ -7,13 +7,17 @@ import {
   getDocumentTemplates,
   createDocumentPayment,
   verifyDocumentPayment,
-  downloadDocument
+  downloadDocument,
+  getRecentDocuments
 } from '../controllers/documentController.js';
 
 const router = express.Router();
 
 // GET /api/v1/documents/templates - Get available document templates
 router.get('/templates', getDocumentTemplates);
+
+// GET /api/v1/documents/recent - Get recent documents for user
+router.get('/recent', getRecentDocuments);
 
 // POST /api/v1/documents/generate - Generate a new document
 router.post('/generate', generateDocument);

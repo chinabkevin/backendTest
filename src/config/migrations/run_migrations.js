@@ -1,4 +1,8 @@
 import { migrateVoiceCallSupport } from './add_voice_call_support.js';
+import { addPaymentsTable } from './add_payments_table.js';
+import { addAiDocumentsTable } from './add_ai_documents_table.js';
+import { addProfileImageFields } from './add_profile_image_fields.js';
+import { addUserProfileFields } from './add_user_profile_fields.js';
 
 /**
  * Run all migrations in sequence
@@ -10,6 +14,22 @@ async function runMigrations() {
     // Run voice call support migration
     const voiceCallResult = await migrateVoiceCallSupport();
     console.log('Voice call migration result:', voiceCallResult);
+    
+    // Run payments table migration
+    const paymentsResult = await addPaymentsTable();
+    console.log('Payments table migration result:', paymentsResult);
+    
+    // Run AI documents table migration
+    const aiDocumentsResult = await addAiDocumentsTable();
+    console.log('AI documents table migration result:', aiDocumentsResult);
+    
+    // Run profile image fields migration
+    const profileImageResult = await addProfileImageFields();
+    console.log('Profile image fields migration result:', profileImageResult);
+    
+    // Run user profile fields migration
+    const userProfileFieldsResult = await addUserProfileFields();
+    console.log('User profile fields migration result:', userProfileFieldsResult);
     
     // Add future migrations here
     

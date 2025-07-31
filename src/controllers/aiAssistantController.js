@@ -1,4 +1,5 @@
 import { sql } from '../config/db.js';
+import { upload, extractTextFromDocument, saveUploadedDocument, getSessionDocuments, deleteDocument } from '../utils/fileUpload.js';
 
 // Legal AI Assistant system prompt
 const LEGAL_SYSTEM_PROMPT = `You are a professional legal assistant with expertise in various areas of law. Your role is to provide helpful legal guidance and information to users.
@@ -410,5 +411,139 @@ export const streamChat = async (req, res) => {
   } catch (error) {
     console.error('Error in streamChat:', error);
     res.status(500).json({ error: 'Failed to stream chat' });
+  }
+};
+
+// POST /api/v1/ai/upload-documents - Upload documents for AI processing
+export const uploadDocuments = async (req, res) => {
+  try {
+    const { sessionId, userId } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'UserId is required' });
+    }
+
+    // Get user ID from supabase_id
+    const user = await sql`
+      SELECT id FROM "user" WHERE supabase_id = ${userId}
+    `;
+    
+    if (user.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'No files uploaded' });
+    }
+
+    const uploadedDocuments = [];
+
+    for (const file of req.files) {
+      try {
+        console.log(`Processing file: ${file.originalname} (${file.mimetype})`);
+        
+        // Extract text from the document
+        const extractedText = await extractTextFromDocument(file.path, file.mimetype);
+        
+        console.log(`Extracted ${extractedText.length} characters from ${file.originalname}`);
+        
+        // Save document to database
+        const documentId = await saveUploadedDocument(
+          user[0].id,
+          file.filename,
+          file.originalname,
+          file.path,
+          extractedText,
+          sessionId
+        );
+
+        uploadedDocuments.push({
+          id: documentId,
+          originalName: file.originalname,
+          fileName: file.filename,
+          extractedText: extractedText.substring(0, 200) + '...' // Truncate for response
+        });
+        
+        console.log(`Successfully processed: ${file.originalname}`);
+      } catch (error) {
+        console.error('Error processing file:', file.originalname, error);
+        // Continue with other files even if one fails
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `${uploadedDocuments.length} document(s) uploaded successfully`,
+      documents: uploadedDocuments
+    });
+  } catch (error) {
+    console.error('Error uploading documents:', error);
+    res.status(500).json({ error: 'Failed to upload documents' });
+  }
+};
+
+// GET /api/v1/ai/documents/:sessionId - Get documents for a session
+export const getSessionDocumentsController = async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { userId } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'UserId is required' });
+    }
+
+    // Get user ID from supabase_id
+    const user = await sql`
+      SELECT id FROM "user" WHERE supabase_id = ${userId}
+    `;
+    
+    if (user.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const documents = await getSessionDocuments(sessionId);
+
+    res.json({
+      success: true,
+      documents: documents
+    });
+  } catch (error) {
+    console.error('Error getting session documents:', error);
+    res.status(500).json({ error: 'Failed to get session documents' });
+  }
+};
+
+// DELETE /api/v1/ai/documents/:documentId - Delete a document
+export const deleteDocumentController = async (req, res) => {
+  try {
+    const { documentId } = req.params;
+    const { userId } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'UserId is required' });
+    }
+
+    // Get user ID from supabase_id
+    const user = await sql`
+      SELECT id FROM "user" WHERE supabase_id = ${userId}
+    `;
+    
+    if (user.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const deleted = await deleteDocument(documentId, user[0].id);
+
+    if (deleted) {
+      res.json({
+        success: true,
+        message: 'Document deleted successfully'
+      });
+    } else {
+      res.status(404).json({ error: 'Document not found' });
+    }
+  } catch (error) {
+    console.error('Error deleting document:', error);
+    res.status(500).json({ error: 'Failed to delete document' });
   }
 }; 

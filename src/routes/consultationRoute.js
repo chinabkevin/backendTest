@@ -4,7 +4,8 @@ import {
   bookConsultation, 
   getMyConsultations, 
   updateConsultation, 
-  submitFeedback 
+  submitFeedback,
+  getRecentConsultations
 } from '../controllers/consultationController.js';
 
 const router = express.Router();
@@ -23,5 +24,8 @@ router.patch('/consultations/:id', updateConsultation);
 
 // POST /api/consultations/:id/feedback - Submit feedback
 router.post('/consultations/:id/feedback', submitFeedback);
+
+// GET /api/consultations/recent - Get recent consultations for user
+router.get('/consultations/recent', getRecentConsultations);
 
 export default router; 

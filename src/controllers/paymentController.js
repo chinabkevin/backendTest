@@ -1,4 +1,5 @@
 import stripe from '../config/stripe.js';
+import { sql } from '../config/db.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -15,6 +16,15 @@ export const createCheckoutSession = async (req, res) => {
       });
     }
 
+    // Get user ID from supabase_id
+    const user = await sql`
+      SELECT id FROM "user" WHERE supabase_id = ${userId}
+    `;
+    
+    if (user.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
     // Format the price for display (assumes fee is in the smallest currency unit, e.g., cents)
     const formattedPrice = (fee / 100).toFixed(2);
     const consultationDate = new Date(datetime).toLocaleDateString();
@@ -26,7 +36,7 @@ export const createCheckoutSession = async (req, res) => {
       currency: 'usd',
       metadata: {
         consultationId,
-        userId,
+        userId: user[0].id.toString(), // Use database user ID
         lawyerName,
         datetime,
         method,
@@ -52,7 +62,7 @@ export const createCheckoutSession = async (req, res) => {
       ],
       metadata: {
         consultationId,
-        userId,
+        userId: user[0].id.toString(), // Use database user ID
         lawyerName,
         datetime,
         method,
@@ -62,8 +72,8 @@ export const createCheckoutSession = async (req, res) => {
       // Do not add payment_intent parameter as it's not supported by Stripe API
       // The checkout session will create its own payment intent
       customer: customerId || undefined, // Use existing customer if provided
-      success_url: `${process.env.FRONTEND_URL}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.FRONTEND_URL}/dashboard/consultations`,
+      success_url: `${process.env.FRONTEND_URL}/dashboard/consultations?payment=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.FRONTEND_URL}/dashboard/consultations?payment=cancelled`,
     });
 
     // Return the session ID to the client
@@ -159,7 +169,37 @@ export const handleStripeWebhook = async (req, res) => {
 // Handle successful checkout completion
 const handleCompletedCheckout = async (session) => {
   try {
-    const { consultationId, documentId } = session.metadata;
+    const { consultationId, documentId, userId } = session.metadata;
+    
+    // Create payment record
+    const { createPaymentRecord } = await import('./paymentHistoryController.js');
+    
+    // Validate userId
+    const parsedUserId = parseInt(userId)
+    if (isNaN(parsedUserId)) {
+      console.error('Invalid userId in session metadata:', userId)
+      return
+    }
+
+    const paymentData = {
+      userId: parsedUserId,
+      consultationId: consultationId ? parseInt(consultationId) : null,
+      documentId: documentId ? parseInt(documentId) : null,
+      stripeSessionId: session.id,
+      stripePaymentIntentId: session.payment_intent,
+      amount: session.amount_total,
+      currency: session.currency,
+      paymentMethod: 'card',
+      status: 'completed',
+      serviceType: consultationId ? 'consultation' : 'document_download',
+      description: consultationId 
+        ? `Legal consultation payment` 
+        : `Document download payment`,
+      metadata: session.metadata
+    };
+    
+    await createPaymentRecord(paymentData);
+    console.log('Payment record created for session:', session.id);
     
     if (consultationId) {
       // Handle consultation payment
@@ -194,7 +234,37 @@ const handleCompletedCheckout = async (session) => {
 // Handle failed payment
 const handleFailedPayment = async (paymentIntent) => {
   try {
-    const { consultationId, documentId } = paymentIntent.metadata;
+    const { consultationId, documentId, userId } = paymentIntent.metadata;
+    
+    // Create or update payment record
+    const { createPaymentRecord, updatePaymentStatus } = await import('./paymentHistoryController.js');
+    
+    // Validate userId
+    const parsedUserId = parseInt(userId)
+    if (isNaN(parsedUserId)) {
+      console.error('Invalid userId in payment intent metadata:', userId)
+      return
+    }
+
+    const paymentData = {
+      userId: parsedUserId,
+      consultationId: consultationId ? parseInt(consultationId) : null,
+      documentId: documentId ? parseInt(documentId) : null,
+      stripeSessionId: null,
+      stripePaymentIntentId: paymentIntent.id,
+      amount: paymentIntent.amount,
+      currency: paymentIntent.currency,
+      paymentMethod: 'card',
+      status: 'failed',
+      serviceType: consultationId ? 'consultation' : 'document_download',
+      description: consultationId 
+        ? `Legal consultation payment (failed)` 
+        : `Document download payment (failed)`,
+      metadata: paymentIntent.metadata
+    };
+    
+    await createPaymentRecord(paymentData);
+    console.log('Failed payment record created for payment intent:', paymentIntent.id);
     
     if (consultationId) {
       // Handle consultation payment failure
