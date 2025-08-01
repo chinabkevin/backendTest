@@ -31,9 +31,11 @@ const corsOptions = {
     
     const allowedOrigins = [
       "http://localhost:3000", 
-      "https://private-repo-sand.vercel.app",
-          "https://advoqat.vercel.app",
-    "https://advoqat-frontend.vercel.app",
+      "https://app.advoqat.com",
+      "https://advoqat.vercel.app",
+      "https://advoqat.onrender.com",
+      "https://advoqat-frontend.vercel.app",
+      "https://legaliq.onrender.com",
       process.env.CORS_ORIGIN
     ].filter(Boolean);
     
@@ -43,9 +45,11 @@ const corsOptions = {
     }
     
     if (allowedOrigins.indexOf(origin) !== -1) {
+      console.log('CORS allowed origin:', origin);
       callback(null, true);
     } else {
       console.log('CORS blocked origin:', origin);
+      console.log('Allowed origins:', allowedOrigins);
       callback(new Error('Not allowed by CORS'));
     }
   },
