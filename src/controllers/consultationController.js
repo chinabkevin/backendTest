@@ -173,10 +173,18 @@ export const getMyConsultations = async (req, res) => {
           ELSE 'Chat will be available at the scheduled time.' 
         END as instructions
       FROM consultations c
-      LEFT JOIN freelancer f ON c.freelancer_id = f.id
+      LEFT JOIN freelancer f ON c.freelancer_id = f.user_id
       WHERE c.user_id = ${user[0].id}
       ORDER BY c.scheduled_at DESC
     `;
+    
+    // Debug: Check what freelancers exist
+    const allFreelancers = await sql`
+      SELECT id, user_id, name, is_available 
+      FROM freelancer 
+      ORDER BY id
+    `;
+    console.log('All freelancers in database:', allFreelancers);
     
     console.log('Raw consultations data:', consultations);
     console.log('User ID:', user[0].id);
@@ -411,7 +419,7 @@ export const getRecentConsultations = async (req, res) => {
         c.updated_at,
         f.name as lawyer_name
       FROM consultations c
-      LEFT JOIN freelancer f ON c.freelancer_id = f.id
+      LEFT JOIN freelancer f ON c.freelancer_id = f.user_id
       WHERE c.user_id = ${user[0].id}
       ORDER BY c.created_at DESC
       LIMIT ${parseInt(limit)}
