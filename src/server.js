@@ -14,6 +14,7 @@ import paymentRoute from './routes/paymentRoute.js';
 import paymentHistoryRoute from './routes/paymentHistoryRoute.js';
 import profileRoute from './routes/profileRoute.js';
 import job from './config/cron.js';
+import logger from './utils/logger.js';
 
 dotenv.config();
 
@@ -45,17 +46,17 @@ const corsOptions = {
     }
     
     if (allowedOrigins.indexOf(origin) !== -1) {
-      console.log('CORS allowed origin:', origin);
+      logger.log('CORS allowed origin:', origin);
       callback(null, true);
     } else {
-      console.log('CORS blocked origin:', origin);
-      console.log('Allowed origins:', allowedOrigins);
+      logger.log('CORS blocked origin:', origin);
+      logger.log('Allowed origins:', allowedOrigins);
       callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
 };
 
 app.use(cors(corsOptions));

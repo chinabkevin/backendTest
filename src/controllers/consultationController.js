@@ -25,6 +25,9 @@ export const getLawyers = async (req, res) => {
       ORDER BY f.performance_score DESC, f.created_at DESC
     `;
     
+    // Debug: Log the lawyers data
+    console.log('Available lawyers:', lawyers.map(l => ({ id: l.id, name: l.fullName, available: l.is_available })));
+    
     res.json(lawyers);
   } catch (error) {
     console.error('Error fetching lawyers:', error);
@@ -49,14 +52,22 @@ export const bookConsultation = async (req, res) => {
     }
     
     // Check if freelancer exists and is available
+    console.log("Looking for freelancer with ID:", lawyerId);
     const freelancer = await sql`
-      SELECT id, is_available, name 
+      SELECT id, user_id, is_available, name 
       FROM freelancer 
-      WHERE user_id = ${lawyerId} AND is_available = true
+      WHERE id = ${lawyerId} AND is_available = true
     `;
-    console.log("freelancer ++++++++++++++", freelancer);
+    console.log("freelancer found:", freelancer);
     
     if (freelancer.length === 0) {
+      // Debug: Check what freelancers exist
+      const allFreelancers = await sql`
+        SELECT id, name, is_available, is_verified 
+        FROM freelancer 
+        ORDER BY id
+      `;
+      console.log("All freelancers in database:", allFreelancers);
       return res.status(404).json({ error: 'Lawyer not found or not available' });
     }
     
@@ -79,10 +90,10 @@ export const bookConsultation = async (req, res) => {
     const voiceCallFee = method === 'voice' ? 15 : 0; // Additional fee for voice calls
     const totalFee = baseFee + voiceCallFee;
     
-    // Create consultation - store the freelancer's actual ID, not user_id
+    // Create consultation - store the freelancer's user_id for the foreign key constraint
     const [consultation] = await sql`
       INSERT INTO consultations (user_id, freelancer_id, scheduled_at, method, notes, room_url, status, base_fee, additional_fee, total_fee)
-      VALUES (${user[0].id}, ${freelancer[0].id}, ${datetime}, ${method}, ${notes}, ${roomUrl}, 'confirmed', ${baseFee}, ${voiceCallFee}, ${totalFee})
+      VALUES (${user[0].id}, ${freelancer[0].user_id}, ${datetime}, ${method}, ${notes}, ${roomUrl}, 'confirmed', ${baseFee}, ${voiceCallFee}, ${totalFee})
       RETURNING id, room_url, status, method, total_fee
     `;
     
@@ -110,7 +121,15 @@ export const bookConsultation = async (req, res) => {
     });
   } catch (error) {
     console.error('Error booking consultation:', error);
-    res.status(500).json({ error: 'Failed to book consultation' });
+    
+    // Provide more specific error messages
+    if (error.code === '23503') {
+      res.status(400).json({ 
+        error: 'Invalid lawyer selected. Please choose a different lawyer.' 
+      });
+    } else {
+      res.status(500).json({ error: 'Failed to book consultation' });
+    }
   }
 };
 
