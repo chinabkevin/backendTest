@@ -13,13 +13,13 @@ export async function syncUser(req, res) {
         let user = await sql`
             UPDATE "user" SET email = ${email}, name = ${name}, updated_at = NOW()
             WHERE supabase_id = ${supabaseId}
-            RETURNING *`;
+            RETURNING id, supabase_id, email, name, role, created_at, updated_at`;
         console.log('[syncUser] Update result:', user);
         if (user.length === 0) {
             user = await sql`
                 INSERT INTO "user" (supabase_id, email, name)
                 VALUES (${supabaseId}, ${email}, ${name})
-                RETURNING *`;
+                RETURNING id, supabase_id, email, name, role, created_at, updated_at`;
             console.log('[syncUser] Insert result:', user);
         }
         console.log('[syncUser] User synced:', user[0]);

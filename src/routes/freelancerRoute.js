@@ -1,6 +1,6 @@
 import express from 'express';
 import { registerFreelancer } from '../controllers/freelancerController.js';
-import { getFreelancers, getFreelancerById, deleteFreelancer, updateFreelancerProfile, setFreelancerAvailability, getFreelancerEarnings, getFreelancerRatings, updateFreelancerCredentials, listFreelancerCases, acceptCase, declineCase, completeCase, annotateCaseDocument, requestWithdrawal, searchFreelancers } from '../controllers/freelancerController.js';
+import { getFreelancers, getFreelancerById, deleteFreelancer, updateFreelancerProfile, setFreelancerAvailability, getFreelancerEarnings, getFreelancerRatings, updateFreelancerCredentials, listFreelancerCases, acceptCase, declineCase, completeCase, annotateCaseDocument, requestWithdrawal, searchFreelancers, listFreelancerConsultations, getConsultationById, confirmConsultation, completeConsultation, cancelConsultation, updateConsultationNotes } from '../controllers/freelancerController.js';
 import { userExists } from '../middleware/userExists.js';
 
 const router = express.Router();
@@ -27,6 +27,14 @@ router.post('/cases/:caseId/annotate', annotateCaseDocument);
 
 // --- PAYMENTS ---
 router.post('/withdraw/:userId', requestWithdrawal);
+
+// --- CONSULTATION MANAGEMENT ---
+router.get('/consultations/:userId', listFreelancerConsultations);
+router.get('/consultations/:consultationId/details', getConsultationById);
+router.post('/consultations/:consultationId/confirm', confirmConsultation);
+router.post('/consultations/:consultationId/complete', completeConsultation);
+router.post('/consultations/:consultationId/cancel', cancelConsultation);
+router.put('/consultations/:consultationId/notes', updateConsultationNotes);
 
 
 export default router;

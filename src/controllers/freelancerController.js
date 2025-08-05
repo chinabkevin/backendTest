@@ -252,3 +252,116 @@ export async function requestWithdrawal(req, res) {
         res.status(500).json({ error: 'Failed to request withdrawal' });
     }
 }
+
+// --- CONSULTATION MANAGEMENT ---
+export async function listFreelancerConsultations(req, res) {
+    const { userId } = req.params;
+    try {
+        const consultations = await sql`
+            SELECT 
+                c.*,
+                u.name as client_name,
+                u.email as client_email,
+                u.phone as client_phone
+            FROM consultation c
+            JOIN "user" u ON c.client_id = u.id
+            WHERE c.freelancer_id = ${userId}
+            ORDER BY c.created_at DESC
+        `;
+        res.json(consultations);
+    } catch (error) {
+        console.error('Error listing consultations:', error);
+        res.status(500).json({ error: 'Failed to list consultations' });
+    }
+}
+
+export async function getConsultationById(req, res) {
+    const { consultationId } = req.params;
+    try {
+        const consultation = await sql`
+            SELECT 
+                c.*,
+                u.name as client_name,
+                u.email as client_email,
+                u.phone as client_phone
+            FROM consultation c
+            JOIN "user" u ON c.client_id = u.id
+            WHERE c.id = ${consultationId}
+        `;
+        if (!consultation.length) return res.status(404).json({ error: 'Consultation not found' });
+        res.json(consultation[0]);
+    } catch (error) {
+        console.error('Error getting consultation:', error);
+        res.status(500).json({ error: 'Failed to get consultation' });
+    }
+}
+
+export async function confirmConsultation(req, res) {
+    const { consultationId } = req.params;
+    try {
+        const updated = await sql`
+            UPDATE consultation 
+            SET status = 'confirmed', confirmed_at = NOW() 
+            WHERE id = ${consultationId} 
+            RETURNING *
+        `;
+        if (!updated.length) return res.status(404).json({ error: 'Consultation not found' });
+        res.json(updated[0]);
+    } catch (error) {
+        console.error('Error confirming consultation:', error);
+        res.status(500).json({ error: 'Failed to confirm consultation' });
+    }
+}
+
+export async function completeConsultation(req, res) {
+    const { consultationId } = req.params;
+    try {
+        const updated = await sql`
+            UPDATE consultation 
+            SET status = 'completed', completed_at = NOW() 
+            WHERE id = ${consultationId} 
+            RETURNING *
+        `;
+        if (!updated.length) return res.status(404).json({ error: 'Consultation not found' });
+        res.json(updated[0]);
+    } catch (error) {
+        console.error('Error completing consultation:', error);
+        res.status(500).json({ error: 'Failed to complete consultation' });
+    }
+}
+
+export async function cancelConsultation(req, res) {
+    const { consultationId } = req.params;
+    const { reason } = req.body;
+    try {
+        const updated = await sql`
+            UPDATE consultation 
+            SET status = 'cancelled', cancelled_at = NOW(), cancellation_reason = ${reason} 
+            WHERE id = ${consultationId} 
+            RETURNING *
+        `;
+        if (!updated.length) return res.status(404).json({ error: 'Consultation not found' });
+        res.json(updated[0]);
+    } catch (error) {
+        console.error('Error cancelling consultation:', error);
+        res.status(500).json({ error: 'Failed to cancel consultation' });
+    }
+}
+
+export async function updateConsultationNotes(req, res) {
+    const { consultationId } = req.params;
+    const { notes } = req.body;
+    try {
+        const updated = await sql`
+            UPDATE consultation 
+            SET notes = ${notes}, updated_at = NOW() 
+            WHERE id = ${consultationId} 
+            RETURNING *
+        `;
+        if (!updated.length) return res.status(404).json({ error: 'Consultation not found' });
+        res.json(updated[0]);
+    } catch (error) {
+        console.error('Error updating consultation notes:', error);
+        res.status(500).json({ error: 'Failed to update consultation notes' });
+    }
+}
