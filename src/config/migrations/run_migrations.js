@@ -3,6 +3,9 @@ import { addPaymentsTable } from './add_payments_table.js';
 import { addAiDocumentsTable } from './add_ai_documents_table.js';
 import { addProfileImageFields } from './add_profile_image_fields.js';
 import { addUserProfileFields } from './add_user_profile_fields.js';
+import { addCaseTable } from './add_case_table.js';
+import { addConsultationsTable } from './add_consultations_table.js';
+import { addConsultationColumns } from './add_consultation_columns.js';
 
 /**
  * Run all migrations in sequence
@@ -30,6 +33,18 @@ async function runMigrations() {
     // Run user profile fields migration
     const userProfileFieldsResult = await addUserProfileFields();
     console.log('User profile fields migration result:', userProfileFieldsResult);
+    
+    // Run case table migration
+    const caseTableResult = await addCaseTable();
+    console.log('Case table migration result:', caseTableResult);
+    
+    // Run consultations table migration
+    const consultationsResult = await addConsultationsTable();
+    console.log('Consultations table migration result:', consultationsResult);
+    
+    // Run consultation columns migration
+    const consultationColumnsResult = await addConsultationColumns();
+    console.log('Consultation columns migration result:', consultationColumnsResult);
     
     // Add future migrations here
     

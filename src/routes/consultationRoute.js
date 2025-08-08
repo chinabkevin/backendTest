@@ -1,31 +1,39 @@
 import express from 'express';
 import { 
-  getLawyers, 
-  bookConsultation, 
-  getMyConsultations, 
-  updateConsultation, 
-  submitFeedback,
-  getRecentConsultations
+    createConsultation,
+    getConsultations,
+    getConsultation,
+    updateConsultationStatus,
+    startConsultation,
+    endConsultation,
+    cancelConsultation,
+    getConsultationStats
 } from '../controllers/consultationController.js';
 
 const router = express.Router();
 
-// GET /api/lawyers - Get available lawyers
-router.get('/lawyers', getLawyers);
+// Create a new consultation
+router.post('/consultations', createConsultation);
 
-// POST /api/consultations/book - Book a consultation
-router.post('/consultations/book', bookConsultation);
+// Get consultations for a user (client or freelancer)
+router.get('/consultations/:userType/:userId', getConsultations);
 
-// GET /api/consultations/my - Get user's consultations
-router.get('/consultations/my', getMyConsultations);
+// Get a specific consultation
+router.get('/consultations/:consultationId', getConsultation);
 
-// PATCH /api/consultations/:id - Update consultation (cancel/reschedule)
-router.patch('/consultations/:id', updateConsultation);
+// Update consultation status
+router.patch('/consultations/:consultationId/status', updateConsultationStatus);
 
-// POST /api/consultations/:id/feedback - Submit feedback
-router.post('/consultations/:id/feedback', submitFeedback);
+// Start consultation
+router.post('/consultations/:consultationId/start', startConsultation);
 
-// GET /api/consultations/recent - Get recent consultations for user
-router.get('/consultations/recent', getRecentConsultations);
+// End consultation
+router.post('/consultations/:consultationId/end', endConsultation);
+
+// Cancel consultation
+router.post('/consultations/:consultationId/cancel', cancelConsultation);
+
+// Get consultation statistics
+router.get('/consultations/:userType/:userId/stats', getConsultationStats);
 
 export default router; 

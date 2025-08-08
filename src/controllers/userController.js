@@ -123,3 +123,61 @@ export async function updateUserProfile(req, res) {
         res.status(500).json({ error: 'Failed to update user profile' });
     }
 } 
+
+export async function ensureUserExists(req, res) {
+    const { supabaseId, email, name } = req.body;
+    
+    try {
+        if (!supabaseId || !email) {
+            return res.status(400).json({ error: 'Missing required fields: supabaseId, email' });
+        }
+
+        // Check if user already exists
+        let user = await sql`SELECT * FROM "user" WHERE supabase_id = ${supabaseId}`;
+        
+        if (user.length === 0) {
+            // Create new user
+            user = await sql`
+                INSERT INTO "user" (supabase_id, email, name, created_at, updated_at)
+                VALUES (${supabaseId}, ${email}, ${name || null}, NOW(), NOW())
+                RETURNING *
+            `;
+            console.log('Created new user:', user[0]);
+        } else {
+            console.log('User already exists:', user[0]);
+        }
+
+        res.json({
+            success: true,
+            user: user[0]
+        });
+    } catch (error) {
+        console.error('Error ensuring user exists:', error);
+        res.status(500).json({ error: 'Failed to ensure user exists' });
+    }
+}
+
+export async function getUserById(req, res) {
+    const { userId } = req.params;
+    
+    try {
+        let user;
+        
+        if (userId.includes('-')) {
+            // UUID format
+            user = await sql`SELECT * FROM "user" WHERE supabase_id = ${userId}`;
+        } else {
+            // Integer format
+            user = await sql`SELECT * FROM "user" WHERE id = ${parseInt(userId)}`;
+        }
+
+        if (user.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        res.json(user[0]);
+    } catch (error) {
+        console.error('Error fetching user:', error);
+        res.status(500).json({ error: 'Failed to fetch user' });
+    }
+} 

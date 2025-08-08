@@ -1,3 +1,4 @@
+import { v2 as cloudinary } from 'cloudinary';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -6,49 +7,176 @@ import { sql } from '../config/db.js';
 import mammoth from 'mammoth';
 import textract from 'textract';
 
+// Configure Cloudinary
+const cloudinaryConfig = {
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+};
+
+// Check if Cloudinary is properly configured
+const isCloudinaryConfigured = () => {
+  const hasConfig = cloudinaryConfig.cloud_name && cloudinaryConfig.api_key && cloudinaryConfig.api_secret;
+  return hasConfig;
+};
+
+if (isCloudinaryConfigured()) {
+  cloudinary.config(cloudinaryConfig);
+}
+
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadDir = 'uploads/ai-documents';
+    const uploadDir = 'uploads/case-documents';
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
     }
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
-    const uniqueName = `${uuidv4()}-${file.originalname}`;
-    cb(null, uniqueName);
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
   }
 });
 
-// File filter for allowed document types
-const fileFilter = (req, file, cb) => {
-  const allowedTypes = [
-    'application/pdf',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/msword',
-    'text/plain'
-  ];
-  
-  const allowedExtensions = ['.pdf', '.docx', '.doc', '.txt'];
-  const fileExtension = path.extname(file.originalname).toLowerCase();
-  
-  if (allowedTypes.includes(file.mimetype) || allowedExtensions.includes(fileExtension)) {
-    cb(null, true);
-  } else {
-    cb(new Error('Unsupported file type. Please upload PDF, DOCX, DOC, or TXT files.'), false);
+export const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Allow PDF, DOC, DOCX, and image files
+    const allowedTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'image/jpeg',
+      'image/jpg',
+      'image/png'
+    ];
+    
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only PDF, DOC, DOCX, and image files are allowed.'), false);
+    }
+  }
+});
+
+// Upload case document to Cloudinary
+export const uploadCaseDocument = async (file, caseId, documentType = 'summary') => {
+  try {
+    if (!isCloudinaryConfigured()) {
+      return {
+        success: false,
+        error: 'Cloudinary is not configured. Please set up your Cloudinary credentials.'
+      };
+    }
+
+    const uploadOptions = {
+      folder: `advoqat-cases/${caseId}`,
+      resource_type: 'auto',
+      public_id: `${documentType}-${Date.now()}`,
+      overwrite: false
+    };
+
+    console.log('📤 Uploading case document to Cloudinary:', {
+      filename: file.originalname,
+      caseId,
+      documentType,
+      options: uploadOptions
+    });
+    
+    const result = await cloudinary.uploader.upload(file.path, uploadOptions);
+    
+    // Clean up the temporary file
+    fs.unlinkSync(file.path);
+    
+    console.log('✅ Case document upload successful:', {
+      url: result.secure_url,
+      public_id: result.public_id,
+      format: result.format,
+      size: result.bytes
+    });
+    
+    return {
+      success: true,
+      url: result.secure_url,
+      public_id: result.public_id,
+      format: result.format,
+      size: result.bytes,
+      original_name: file.originalname
+    };
+  } catch (error) {
+    console.error('Cloudinary upload error:', error);
+    
+    // Clean up the temporary file if it exists
+    if (file.path && fs.existsSync(file.path)) {
+      fs.unlinkSync(file.path);
+    }
+    
+    return {
+      success: false,
+      error: error.message || 'Failed to upload document'
+    };
   }
 };
 
-// Configure multer with file size limits
-export const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
-  limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
-    files: 5 // Maximum 5 files per upload
+// Delete case document from Cloudinary
+export const deleteCaseDocument = async (publicId) => {
+  try {
+    if (!isCloudinaryConfigured()) {
+      return {
+        success: false,
+        error: 'Cloudinary is not configured.'
+      };
+    }
+
+    const result = await cloudinary.uploader.destroy(publicId);
+    return {
+      success: result.result === 'ok',
+      message: result.result === 'ok' ? 'Document deleted successfully' : 'Failed to delete document'
+    };
+  } catch (error) {
+    console.error('Cloudinary delete error:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to delete document'
+    };
   }
-});
+};
+
+// Validate document file
+export const validateDocumentFile = (file) => {
+  const allowedTypes = [
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'image/jpeg',
+    'image/jpg',
+    'image/png'
+  ];
+  const maxSize = 10 * 1024 * 1024; // 10MB
+  
+  if (!allowedTypes.includes(file.mimetype)) {
+    return {
+      valid: false,
+      error: 'Only PDF, DOC, DOCX, and image files are allowed'
+    };
+  }
+  
+  if (file.size > maxSize) {
+    return {
+      valid: false,
+      error: 'File size must be less than 10MB'
+    };
+  }
+  
+  return {
+    valid: true,
+    error: null
+  };
+};
 
 // Extract text from uploaded documents
 export const extractTextFromDocument = async (filePath, fileType) => {
