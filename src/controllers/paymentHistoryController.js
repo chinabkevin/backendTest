@@ -6,6 +6,8 @@ export const getUserPaymentHistory = async (req, res) => {
     const { userId } = req.query;
     const { startDate, endDate, serviceType, status, page = 1, limit = 10 } = req.query;
     
+    console.log('Payment history request - userId:', userId);
+    
     if (!userId) {
       return res.status(400).json({ error: 'User ID is required' });
     }
@@ -13,14 +15,38 @@ export const getUserPaymentHistory = async (req, res) => {
     // Get database user ID from Supabase user ID
     let dbUserId = userId;
     if (userId.includes('-')) { // This is a Supabase UUID
+      console.log('Converting Supabase UUID to database ID...');
       const user = await sql`
         SELECT id FROM "user" WHERE supabase_id = ${userId}
       `;
       if (user.length === 0) {
+        console.log('User not found for Supabase ID:', userId);
         return res.status(404).json({ error: 'User not found' });
       }
       dbUserId = user[0].id;
+      console.log('Converted to database ID:', dbUserId);
+    } else {
+      console.log('Using numeric user ID:', dbUserId);
     }
+    
+    // Check if payments table exists
+    console.log('Checking if payments table exists...');
+    const tableCheck = await sql`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'payments'
+      ) as table_exists
+    `;
+    
+    if (!tableCheck[0]?.table_exists) {
+      console.error('Payments table does not exist!');
+      return res.status(500).json({ 
+        error: 'Payments table does not exist',
+        details: 'Database migration may have failed'
+      });
+    }
+    
+    console.log('Payments table exists, proceeding with query...');
     
     // Build the base query
     let query = sql`
@@ -38,7 +64,7 @@ export const getUserPaymentHistory = async (req, res) => {
         p.stripe_payment_intent_id,
         f.name as consultation_lawyer_name,
         c.scheduled_at as consultation_date,
-        c.method as consultation_method,
+        c.consultation_type as consultation_method,
         d.template_name as document_name,
         d.template_id as document_type
       FROM payments p
@@ -82,7 +108,9 @@ export const getUserPaymentHistory = async (req, res) => {
     const offset = (page - 1) * limit;
     query = sql`${query} ORDER BY p.created_at DESC LIMIT ${limit} OFFSET ${offset}`;
     
+    console.log('Executing payment history query...');
     const payments = await query;
+    console.log('Query executed successfully, found payments:', payments.length);
     
     // Get total count for pagination
     let countQuery = sql`
@@ -128,6 +156,7 @@ export const getUserPaymentHistory = async (req, res) => {
       } : null
     }));
     
+    console.log('Returning payment history successfully');
     res.json({
       success: true,
       payments: formattedPayments,
@@ -140,7 +169,17 @@ export const getUserPaymentHistory = async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching payment history:', error);
-    res.status(500).json({ error: 'Failed to fetch payment history' });
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      code: error.code,
+      detail: error.detail
+    });
+    res.status(500).json({ 
+      error: 'Failed to fetch payment history',
+      details: error.message,
+      code: error.code
+    });
   }
 };
 

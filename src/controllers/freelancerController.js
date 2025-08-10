@@ -30,7 +30,25 @@ export async function getFreelancerById(req, res){
     try { 
         const { userId } = req.params;
         console.log('userId', userId);
-        const freelancer = await sql`SELECT * FROM freelancer WHERE user_id = ${userId} ORDER BY created_at DESC`;
+        
+        // Handle both Supabase UUID and numeric database ID
+        let dbUserId = userId;
+        if (userId.includes('-')) { // This is a Supabase UUID
+            console.log('Converting Supabase UUID to database ID for freelancer...');
+            const user = await sql`
+                SELECT id FROM "user" WHERE supabase_id = ${userId}
+            `;
+            if (user.length === 0) {
+                console.log('User not found for Supabase ID:', userId);
+                return res.status(404).json({ error: 'User not found' });
+            }
+            dbUserId = user[0].id;
+            console.log('Converted to database ID:', dbUserId);
+        } else {
+            console.log('Using numeric user ID:', dbUserId);
+        }
+        
+        const freelancer = await sql`SELECT * FROM freelancer WHERE user_id = ${dbUserId} ORDER BY created_at DESC`;
         if (!freelancer) {
           return res.status(404).json({ error: 'Freelancer not found' });
         }
@@ -41,23 +59,33 @@ export async function getFreelancerById(req, res){
       }
 }
 
-export async function deleteFreelancer(req, res){
+export async function deleteFreelancer(req, res) {
+    const { userId } = req.params;
     try {
-        const { userId } = req.params;
-        if(isNaN(parseInt(userId))){
-            return res.status(400).json({ error: 'Invalid user ID' });
+        // Handle both Supabase UUID and numeric database ID
+        let dbUserId = userId;
+        if (userId.includes('-')) { // This is a Supabase UUID
+            console.log('Converting Supabase UUID to database ID for delete...');
+            const user = await sql`
+                SELECT id FROM "user" WHERE supabase_id = ${userId}
+            `;
+            if (user.length === 0) {
+                console.log('User not found for Supabase ID:', userId);
+                return res.status(404).json({ error: 'User not found' });
+            }
+            dbUserId = user[0].id;
+            console.log('Converted to database ID:', dbUserId);
+        } else {
+            console.log('Using numeric user ID:', dbUserId);
         }
-        const freelancer = await sql`DELETE FROM freelancer WHERE user_id = ${userId} RETURNING *`;
-        console.log('freelancer', freelancer);
-        if (freelancer.length === 0) {
-          return res.status(404).json({ error: 'Freelancer not found' });
-        }
-        console.log('Freelancer deleted successfully');
+        
+        const freelancer = await sql`DELETE FROM freelancer WHERE user_id = ${dbUserId} RETURNING *`;
+        if (!freelancer.length) return res.status(404).json({ error: 'Freelancer not found' });
         res.json({ message: 'Freelancer deleted successfully' });
-      } catch (error) {
+    } catch (error) {
         console.error('Error deleting freelancer:', error);
         res.status(500).json({ error: 'Failed to delete freelancer' });
-      }
+    }
 }
 
 export async function updateFreelancerProfile(req, res) {
@@ -65,6 +93,24 @@ export async function updateFreelancerProfile(req, res) {
     const { name, phone, experience, expertiseAreas } = req.body;
     try {
         if (!userId) return res.status(400).json({ error: 'Missing userId' });
+        
+        // Handle both Supabase UUID and numeric database ID
+        let dbUserId = userId;
+        if (userId.includes('-')) { // This is a Supabase UUID
+            console.log('Converting Supabase UUID to database ID for profile update...');
+            const user = await sql`
+                SELECT id FROM "user" WHERE supabase_id = ${userId}
+            `;
+            if (user.length === 0) {
+                console.log('User not found for Supabase ID:', userId);
+                return res.status(404).json({ error: 'User not found' });
+            }
+            dbUserId = user[0].id;
+            console.log('Converted to database ID:', dbUserId);
+        } else {
+            console.log('Using numeric user ID:', dbUserId);
+        }
+        
         const updated = await sql`
             UPDATE freelancer SET
                 name = COALESCE(${name}, name),
@@ -72,7 +118,7 @@ export async function updateFreelancerProfile(req, res) {
                 experience = COALESCE(${experience}, experience),
                 expertise_areas = COALESCE(${expertiseAreas}, expertise_areas),
                 updated_at = NOW()
-            WHERE user_id = ${userId}
+            WHERE user_id = ${dbUserId}
             RETURNING *`;
         if (!updated.length) return res.status(404).json({ error: 'Freelancer not found' });
         res.json(updated[0]);
@@ -86,23 +132,107 @@ export async function setFreelancerAvailability(req, res) {
     const { userId } = req.params;
     const { isAvailable } = req.body;
     try {
-        if (typeof isAvailable !== 'boolean') return res.status(400).json({ error: 'isAvailable must be boolean' });
+        if (!userId) return res.status(400).json({ error: 'Missing userId' });
+        if (typeof isAvailable !== 'boolean') return res.status(400).json({ error: 'isAvailable must be a boolean' });
+        
+        // Handle both Supabase UUID and numeric database ID
+        let dbUserId = userId;
+        if (userId.includes('-')) { // This is a Supabase UUID
+            console.log('Converting Supabase UUID to database ID for availability...');
+            const user = await sql`
+                SELECT id FROM "user" WHERE supabase_id = ${userId}
+            `;
+            if (user.length === 0) {
+                console.log('User not found for Supabase ID:', userId);
+                return res.status(404).json({ error: 'User not found' });
+            }
+            dbUserId = user[0].id;
+            console.log('Converted to database ID:', dbUserId);
+        } else {
+            console.log('Using numeric user ID:', dbUserId);
+        }
+        
         const updated = await sql`
-            UPDATE freelancer SET is_available = ${isAvailable}, updated_at = NOW() WHERE user_id = ${userId} RETURNING *`;
+            UPDATE freelancer SET is_available = ${isAvailable}, updated_at = NOW() WHERE user_id = ${dbUserId} RETURNING *`;
         if (!updated.length) return res.status(404).json({ error: 'Freelancer not found' });
         res.json(updated[0]);
     } catch (error) {
-        console.error('Error setting availability:', error);
-        res.status(500).json({ error: 'Failed to set availability' });
+        console.error('Error updating availability:', error);
+        res.status(500).json({ error: 'Failed to update availability' });
     }
 }
 
 export async function getFreelancerEarnings(req, res) {
     const { userId } = req.params;
     try {
-        const result = await sql`SELECT total_earnings FROM freelancer WHERE user_id = ${userId}`;
-        if (!result.length) return res.status(404).json({ error: 'Freelancer not found' });
-        res.json({ totalEarnings: result[0].total_earnings });
+        // Handle both Supabase UUID and numeric database ID
+        let dbUserId = userId;
+        if (userId.includes('-')) { // This is a Supabase UUID
+            console.log('Converting Supabase UUID to database ID for earnings...');
+            const user = await sql`
+                SELECT id FROM "user" WHERE supabase_id = ${userId}
+            `;
+            if (user.length === 0) {
+                console.log('User not found for Supabase ID:', userId);
+                return res.status(404).json({ error: 'User not found' });
+            }
+            dbUserId = user[0].id;
+            console.log('Converted to database ID:', dbUserId);
+        } else {
+            console.log('Using numeric user ID:', dbUserId);
+        }
+        
+        // Get basic freelancer info
+        const freelancerResult = await sql`SELECT total_earnings FROM freelancer WHERE user_id = ${dbUserId}`;
+        if (!freelancerResult.length) return res.status(404).json({ error: 'Freelancer not found' });
+        
+        const totalEarnings = freelancerResult[0].total_earnings || 0;
+        
+        // Get case statistics
+        const caseStats = await sql`
+            SELECT 
+                COUNT(*) as total_cases,
+                COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_cases,
+                AVG(CASE WHEN status = 'completed' THEN 100 END) as average_per_case
+            FROM "case" 
+            WHERE freelancer_id = ${dbUserId}
+        `;
+        
+        // Get monthly earnings for current and last month
+        const currentMonth = new Date();
+        const lastMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1);
+        
+        const monthlyEarnings = await sql`
+            SELECT 
+                COALESCE(SUM(CASE 
+                    WHEN created_at >= ${currentMonth.toISOString().slice(0, 7) + '-01'} 
+                    THEN 100 ELSE 0 END), 0) as this_month,
+                COALESCE(SUM(CASE 
+                    WHEN created_at >= ${lastMonth.toISOString().slice(0, 7) + '-01'} 
+                    AND created_at < ${currentMonth.toISOString().slice(0, 7) + '-01'}
+                    THEN 100 ELSE 0 END), 0) as last_month
+            FROM "case" 
+            WHERE freelancer_id = ${dbUserId} AND status = 'completed'
+        `;
+        
+        // Calculate pending earnings (cases that are active but not completed)
+        const pendingEarnings = await sql`
+            SELECT COALESCE(COUNT(*) * 100, 0) as pending_earnings
+            FROM "case" 
+            WHERE freelancer_id = ${dbUserId} AND status IN ('accepted', 'pending')
+        `;
+        
+        const earningsData = {
+            total_earnings: totalEarnings,
+            pending_earnings: pendingEarnings[0]?.pending_earnings || 0,
+            this_month: monthlyEarnings[0]?.this_month || 0,
+            last_month: monthlyEarnings[0]?.last_month || 0,
+            total_cases: caseStats[0]?.total_cases || 0,
+            completed_cases: caseStats[0]?.completed_cases || 0,
+            average_per_case: caseStats[0]?.average_per_case || 0
+        };
+        
+        res.json(earningsData);
     } catch (error) {
         console.error('Error fetching earnings:', error);
         res.status(500).json({ error: 'Failed to fetch earnings' });
@@ -112,8 +242,25 @@ export async function getFreelancerEarnings(req, res) {
 export async function getFreelancerRatings(req, res) {
     const { userId } = req.params;
     try {
+        // Handle both Supabase UUID and numeric database ID
+        let dbUserId = userId;
+        if (userId.includes('-')) { // This is a Supabase UUID
+            console.log('Converting Supabase UUID to database ID for ratings...');
+            const user = await sql`
+                SELECT id FROM "user" WHERE supabase_id = ${userId}
+            `;
+            if (user.length === 0) {
+                console.log('User not found for Supabase ID:', userId);
+                return res.status(404).json({ error: 'User not found' });
+            }
+            dbUserId = user[0].id;
+            console.log('Converted to database ID:', dbUserId);
+        } else {
+            console.log('Using numeric user ID:', dbUserId);
+        }
+        
         // Placeholder: Replace with actual ratings table if exists
-        const result = await sql`SELECT performance_score FROM freelancer WHERE user_id = ${userId}`;
+        const result = await sql`SELECT performance_score FROM freelancer WHERE user_id = ${dbUserId}`;
         if (!result.length) return res.status(404).json({ error: 'Freelancer not found' });
         res.json({ performanceScore: result[0].performance_score });
     } catch (error) {
@@ -126,13 +273,30 @@ export async function updateFreelancerCredentials(req, res) {
     const { userId } = req.params;
     const { idCardUrl, barCertificateUrl, additionalDocuments } = req.body;
     try {
+        // Handle both Supabase UUID and numeric database ID
+        let dbUserId = userId;
+        if (userId.includes('-')) { // This is a Supabase UUID
+            console.log('Converting Supabase UUID to database ID for credentials...');
+            const user = await sql`
+                SELECT id FROM "user" WHERE supabase_id = ${userId}
+            `;
+            if (user.length === 0) {
+                console.log('User not found for Supabase ID:', userId);
+                return res.status(404).json({ error: 'User not found' });
+            }
+            dbUserId = user[0].id;
+            console.log('Converted to database ID:', dbUserId);
+        } else {
+            console.log('Using numeric user ID:', dbUserId);
+        }
+        
         const updated = await sql`
             UPDATE freelancer SET
                 id_card_url = COALESCE(${idCardUrl}, id_card_url),
                 bar_certificate_url = COALESCE(${barCertificateUrl}, bar_certificate_url),
                 additional_documents = COALESCE(${additionalDocuments}, additional_documents),
                 updated_at = NOW()
-            WHERE user_id = ${userId}
+            WHERE user_id = ${dbUserId}
             RETURNING *`;
         if (!updated.length) return res.status(404).json({ error: 'Freelancer not found' });
         res.json(updated[0]);
@@ -146,11 +310,68 @@ export async function updateFreelancerCredentials(req, res) {
 export async function listFreelancerCases(req, res) {
     const { userId } = req.params;
     try {
-        const cases = await sql`SELECT * FROM "case" WHERE freelancer_id = ${userId} ORDER BY created_at DESC`;
+        // Handle both Supabase UUID and numeric database ID
+        let dbUserId = userId;
+        if (userId.includes('-')) { // This is a Supabase UUID
+            console.log('Converting Supabase UUID to database ID for cases...');
+            const user = await sql`
+                SELECT id FROM "user" WHERE supabase_id = ${userId}
+            `;
+            if (user.length === 0) {
+                console.log('User not found for Supabase ID:', userId);
+                return res.status(404).json({ error: 'User not found' });
+            }
+            dbUserId = user[0].id;
+            console.log('Converted to database ID:', dbUserId);
+        } else {
+            console.log('Using numeric user ID:', dbUserId);
+        }
+        
+        const cases = await sql`SELECT * FROM "case" WHERE freelancer_id = ${dbUserId} ORDER BY created_at DESC`;
         res.json(cases);
     } catch (error) {
         console.error('Error listing cases:', error);
         res.status(500).json({ error: 'Failed to list cases' });
+    }
+}
+
+export async function getFreelancerCaseById(req, res) {
+    const { userId, caseId } = req.params;
+    
+    try {
+        // Handle both Supabase UUID and numeric database ID
+        let dbUserId = userId;
+        if (userId.includes('-')) { // This is a Supabase UUID
+            console.log('Converting Supabase UUID to database ID for case...');
+            const user = await sql`
+                SELECT id FROM "user" WHERE supabase_id = ${userId}
+            `;
+            if (user.length === 0) {
+                console.log('User not found for Supabase ID:', userId);
+                return res.status(404).json({ error: 'User not found' });
+            }
+            dbUserId = user[0].id;
+            console.log('Converted to database ID:', dbUserId);
+        } else {
+            console.log('Using numeric user ID:', dbUserId);
+        }
+        
+        // First check if the case belongs to this freelancer
+        const caseData = await sql`
+            SELECT c.*, u.name as client_name, u.email as client_email 
+            FROM "case" c 
+            JOIN "user" u ON c.client_id = u.id 
+            WHERE c.id = ${caseId} AND c.freelancer_id = ${dbUserId}
+        `;
+        
+        if (!caseData.length) {
+            return res.status(404).json({ error: 'Case not found or access denied' });
+        }
+        
+        res.json(caseData[0]);
+    } catch (error) {
+        console.error('Error getting case:', error);
+        res.status(500).json({ error: 'Failed to get case' });
     }
 }
 
@@ -181,9 +402,83 @@ export async function declineCase(req, res) {
 export async function completeCase(req, res) {
     const { caseId } = req.params;
     try {
-        const updated = await sql`UPDATE "case" SET status = 'completed', completed_at = NOW() WHERE id = ${caseId} RETURNING *`;
-        if (!updated.length) return res.status(404).json({ error: 'Case not found' });
-        res.json(updated[0]);
+        // First, get the case details to check if it has required documents
+        const caseData = await sql`
+            SELECT c.*, f.user_id as freelancer_id, f.total_earnings 
+            FROM "case" c 
+            LEFT JOIN freelancer f ON c.freelancer_id = f.user_id 
+            WHERE c.id = ${caseId}
+        `;
+        
+        if (!caseData.length) {
+            return res.status(404).json({ error: 'Case not found' });
+        }
+        
+        const caseItem = caseData[0];
+        
+        // Check if case has required documents for completion
+        if (!caseItem.annotated_document_url) {
+            return res.status(400).json({ 
+                error: 'Cannot complete case without annotated document',
+                message: 'Please annotate and submit the document before marking case as complete'
+            });
+        }
+        
+        // Calculate case payment (this would be based on case complexity, hours spent, etc.)
+        // For now, using a fixed rate of $150 per case
+        const casePayment = 15000; // $150.00 in cents
+        
+        // Update case status
+        const updated = await sql`
+            UPDATE "case" 
+            SET status = 'completed', completed_at = NOW() 
+            WHERE id = ${caseId} 
+            RETURNING *
+        `;
+        
+        if (!updated.length) {
+            return res.status(500).json({ error: 'Failed to update case status' });
+        }
+        
+        // Update freelancer earnings
+        if (caseItem.freelancer_id) {
+            await sql`
+                UPDATE freelancer 
+                SET total_earnings = total_earnings + ${casePayment},
+                    updated_at = NOW()
+                WHERE user_id = ${caseItem.freelancer_id}
+            `;
+        }
+        
+        // Create payment record for the completed case
+        await sql`
+            INSERT INTO payments (
+                user_id, 
+                amount, 
+                currency, 
+                payment_method, 
+                status, 
+                service_type, 
+                description, 
+                metadata
+            ) VALUES (
+                ${caseItem.freelancer_id}, 
+                ${casePayment}, 
+                'usd', 
+                'case_completion', 
+                'completed', 
+                'case_payment', 
+                'Payment for completed case: ${caseItem.title}', 
+                '{"case_id": ${caseId}, "case_title": ${caseItem.title}}'
+            )
+        `;
+        
+        res.json({
+            ...updated[0],
+            payment_amount: casePayment / 100, // Convert cents to dollars
+            message: 'Case completed successfully. Payment of $150 has been added to your earnings.'
+        });
+        
     } catch (error) {
         console.error('Error completing case:', error);
         res.status(500).json({ error: 'Failed to complete case' });
@@ -193,11 +488,79 @@ export async function completeCase(req, res) {
 // --- DOCUMENT ANNOTATION ---
 export async function annotateCaseDocument(req, res) {
     const { caseId } = req.params;
-    const { annotatedDocumentUrl, notes } = req.body;
+    const { annotatedDocumentUrl, notes, documentType = 'annotated' } = req.body;
+    
     try {
-        const updated = await sql`UPDATE "case" SET annotated_document_url = ${annotatedDocumentUrl}, annotation_notes = ${notes}, updated_at = NOW() WHERE id = ${caseId} RETURNING *`;
-        if (!updated.length) return res.status(404).json({ error: 'Case not found' });
-        res.json(updated[0]);
+        // Validate required fields
+        if (!notes || !notes.trim()) {
+            return res.status(400).json({ 
+                error: 'Annotation notes are required',
+                message: 'Please provide detailed legal analysis and recommendations'
+            });
+        }
+        
+        if (!annotatedDocumentUrl) {
+            return res.status(400).json({ 
+                error: 'Annotated document is required',
+                message: 'Please upload your annotated version of the document'
+            });
+        }
+        
+        // Check if case exists and freelancer has access
+        const caseData = await sql`
+            SELECT c.*, f.user_id as freelancer_id 
+            FROM "case" c 
+            LEFT JOIN freelancer f ON c.freelancer_id = f.user_id 
+            WHERE c.id = ${caseId}
+        `;
+        
+        if (!caseData.length) {
+            return res.status(404).json({ error: 'Case not found' });
+        }
+        
+        const caseItem = caseData[0];
+        
+        // Check if case is assigned to a freelancer
+        if (!caseItem.freelancer_id) {
+            return res.status(403).json({ 
+                error: 'Case not assigned',
+                message: 'This case has not been assigned to a freelancer yet'
+            });
+        }
+        
+        // Check if case status allows annotation
+        if (caseItem.status === 'completed') {
+            return res.status(400).json({ 
+                error: 'Case already completed',
+                message: 'Cannot annotate a completed case'
+            });
+        }
+        
+        // Update case with annotation
+        const updated = await sql`
+            UPDATE "case" 
+            SET 
+                annotated_document_url = ${annotatedDocumentUrl},
+                annotation_notes = ${notes},
+                updated_at = NOW()
+            WHERE id = ${caseId} 
+            RETURNING *
+        `;
+        
+        if (!updated.length) {
+            return res.status(500).json({ error: 'Failed to update case annotation' });
+        }
+        
+        res.json({
+            ...updated[0],
+            message: 'Document annotated successfully. You can now mark the case as complete to receive payment.',
+            next_steps: [
+                'Review your annotation notes',
+                'Ensure the annotated document is properly formatted',
+                'Mark the case as complete to trigger payment'
+            ]
+        });
+        
     } catch (error) {
         console.error('Error annotating document:', error);
         res.status(500).json({ error: 'Failed to annotate document' });
@@ -244,8 +607,25 @@ export async function requestWithdrawal(req, res) {
     const { userId } = req.params;
     const { amount, method } = req.body;
     try {
+        // Handle both Supabase UUID and numeric database ID
+        let dbUserId = userId;
+        if (userId.includes('-')) { // This is a Supabase UUID
+            console.log('Converting Supabase UUID to database ID for withdrawal...');
+            const user = await sql`
+                SELECT id FROM "user" WHERE supabase_id = ${userId}
+            `;
+            if (user.length === 0) {
+                console.log('User not found for Supabase ID:', userId);
+                return res.status(404).json({ error: 'User not found' });
+            }
+            dbUserId = user[0].id;
+            console.log('Converted to database ID:', dbUserId);
+        } else {
+            console.log('Using numeric user ID:', dbUserId);
+        }
+        
         // Placeholder: Insert withdrawal request
-        const withdrawal = await sql`INSERT INTO withdrawal (freelancer_id, amount, method, status, requested_at) VALUES (${userId}, ${amount}, ${method}, 'pending', NOW()) RETURNING *`;
+        const withdrawal = await sql`INSERT INTO withdrawal (freelancer_id, amount, method, status, requested_at) VALUES (${dbUserId}, ${amount}, ${method}, 'pending', NOW()) RETURNING *`;
         res.status(201).json(withdrawal[0]);
     } catch (error) {
         console.error('Error requesting withdrawal:', error);

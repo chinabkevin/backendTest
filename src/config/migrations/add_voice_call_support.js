@@ -12,18 +12,18 @@ export async function migrateVoiceCallSupport() {
       ADD COLUMN IF NOT EXISTS total_fee NUMERIC DEFAULT 50
     `;
     
-    // 2. Update the method check constraint to include 'voice'
+    // 2. Update the consultation_type check constraint to include 'voice'
     // First, drop the existing constraint
     await sql`
       ALTER TABLE consultations
-      DROP CONSTRAINT IF EXISTS consultations_method_check
+      DROP CONSTRAINT IF EXISTS consultations_consultation_type_check
     `;
     
     // Then, create the new constraint with 'voice' included
     await sql`
       ALTER TABLE consultations
-      ADD CONSTRAINT consultations_method_check 
-      CHECK (method IN ('chat', 'video', 'voice'))
+      ADD CONSTRAINT consultations_consultation_type_check 
+      CHECK (consultation_type IN ('chat', 'video', 'voice', 'audio'))
     `;
     
     console.log('Voice call support migration completed successfully');

@@ -1,446 +1,431 @@
-import { sql } from '../config/db.js';
+import { sql } from "../config/db.js";
 
-// GET /api/lawyers - Returns a list of available legal professionals
-export const getLawyers = async (req, res) => {
-  try {
-    const lawyers = await sql`
-      SELECT 
-        f.id,
-        f.name as fullName,
-        f.expertise_areas as specialty,
-        f.is_available,
-        f.is_verified,
-        f.verification_status,
-        f.performance_score,
-        f.total_earnings,
-        f.created_at,
-        f.updated_at,
-        CASE 
-          WHEN f.is_available THEN ARRAY['Available now'] 
-          ELSE ARRAY['Not available'] 
-        END as availability,
-        '/default-avatar.png' as avatarUrl
-      FROM freelancer f
-      WHERE f.is_verified = true
-      ORDER BY f.performance_score DESC, f.created_at DESC
-    `;
+// Create a new consultation
+export async function createConsultation(req, res) {
+    console.log('createConsultation called with body:', req.body)
     
-    // Debug: Log the lawyers data
-    console.log('Available lawyers:', lawyers.map(l => ({ id: l.id, name: l.fullName, available: l.is_available })));
-    
-    res.json(lawyers);
-  } catch (error) {
-    console.error('Error fetching lawyers:', error);
-    res.status(500).json({ error: 'Failed to fetch lawyers' });
-  }
-};
+    const { 
+        caseId, 
+        freelancerId, 
+        clientId, 
+        consultationType, 
+        scheduledAt, 
+        duration, 
+        notes,
+        meetingLink 
+    } = req.body;
 
-// POST /api/consultations/book - Books a legal consultation
-export const bookConsultation = async (req, res) => {
-  try {
-    const { userId, lawyerId, datetime, method, notes } = req.body;
-    console.log("bookConsultation request body", req.body);
-    
-    // Validate required fields
-    if (!userId || !lawyerId || !datetime || !method) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
-    
-    // Validate method
-    if (!['video', 'chat', 'voice'].includes(method)) {
-      return res.status(400).json({ error: 'Method must be either "video", "chat", or "voice"' });
-    }
-    
-    // Check if freelancer exists and is available
-    console.log("Looking for freelancer with ID:", lawyerId);
-    const freelancer = await sql`
-      SELECT id, user_id, is_available, name 
-      FROM freelancer 
-      WHERE id = ${lawyerId} AND is_available = true
-    `;
-    console.log("freelancer found:", freelancer);
-    
-    if (freelancer.length === 0) {
-      // Debug: Check what freelancers exist
-      const allFreelancers = await sql`
-        SELECT id, name, is_available, is_verified 
-        FROM freelancer 
-        ORDER BY id
-      `;
-      console.log("All freelancers in database:", allFreelancers);
-      return res.status(404).json({ error: 'Lawyer not found or not available' });
-    }
-    
-    // Check if user exists
-    const user = await sql`
-      SELECT id FROM "user" WHERE supabase_id = ${userId}
-    `;
-    
-    if (user.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    // Generate room URL for video consultations
-    const roomUrl = method === 'video' 
-      ? `https://meet.jit.si/advoqat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-      : null;
-    
-    // Calculate additional fee for voice call
-    const baseFee = 50; // Base consultation fee
-    const voiceCallFee = method === 'voice' ? 15 : 0; // Additional fee for voice calls
-    const totalFee = baseFee + voiceCallFee;
-    
-    // Create consultation - store the freelancer's user_id for the foreign key constraint
-    const [consultation] = await sql`
-      INSERT INTO consultations (user_id, freelancer_id, scheduled_at, method, notes, room_url, status, base_fee, additional_fee, total_fee)
-      VALUES (${user[0].id}, ${freelancer[0].user_id}, ${datetime}, ${method}, ${notes}, ${roomUrl}, 'confirmed', ${baseFee}, ${voiceCallFee}, ${totalFee})
-      RETURNING id, room_url, status, method, total_fee
-    `;
-    
-    // Create response with appropriate instructions based on method
-    let instructions = '';
-    if (consultation.method === 'voice') {
-      instructions = 'The lawyer will call you at the scheduled time.';
-    } else if (consultation.method === 'video') {
-      instructions = 'Join the video room at the scheduled time using the provided link.';
-    } else {
-      instructions = 'Chat will be available at the scheduled time.';
-    }
-    
-    res.status(201).json({
-      status: consultation.status,
-      consultationId: consultation.id,
-      roomUrl: consultation.room_url,
-      method: consultation.method,
-      fee: {
-        base: baseFee,
-        additional: voiceCallFee,
-        total: consultation.total_fee
-      },
-      instructions
-    });
-  } catch (error) {
-    console.error('Error booking consultation:', error);
-    
-    // Provide more specific error messages
-    if (error.code === '23503') {
-      res.status(400).json({ 
-        error: 'Invalid lawyer selected. Please choose a different lawyer.' 
-      });
-    } else {
-      res.status(500).json({ error: 'Failed to book consultation' });
-    }
-  }
-};
+    try {
+        // Validate required fields
+        if (!caseId || !freelancerId || !clientId || !consultationType || !scheduledAt) {
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
 
-// GET /api/consultations/my - Get user's consultations
-export const getMyConsultations = async (req, res) => {
-  try {
-    const { userId } = req.query;
-    
-    if (!userId) {
-      return res.status(400).json({ error: 'User ID is required' });
-    }
-    
-    // Get user ID from supabase_id
-    const user = await sql`
-      SELECT id FROM "user" WHERE supabase_id = ${userId}
-    `;
-    
-    if (user.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    const consultations = await sql`
-      SELECT 
-        c.id,
-        COALESCE(f.name, 'Unknown Lawyer') as lawyerName,
-        c.scheduled_at as datetime,
-        c.method,
-        c.room_url as roomUrl,
-        c.status,
-        c.notes,
-        c.created_at,
-        c.freelancer_id,
-        f.id as freelancer_table_id,
-        f.name as freelancer_name,
-        c.base_fee,
-        c.additional_fee,
-        c.total_fee,
-        CASE 
-          WHEN c.method = 'voice' THEN 'The lawyer will call you at the scheduled time.' 
-          WHEN c.method = 'video' THEN 'Join the video room at the scheduled time.' 
-          ELSE 'Chat will be available at the scheduled time.' 
-        END as instructions
-      FROM consultations c
-      LEFT JOIN freelancer f ON c.freelancer_id = f.user_id
-      WHERE c.user_id = ${user[0].id}
-      ORDER BY c.scheduled_at DESC
-    `;
-    
-    // Debug: Check what freelancers exist
-    const allFreelancers = await sql`
-      SELECT id, user_id, name, is_available 
-      FROM freelancer 
-      ORDER BY id
-    `;
-    console.log('All freelancers in database:', allFreelancers);
-    
-    console.log('Raw consultations data:', consultations);
-    console.log('User ID:', user[0].id);
-    console.log('Number of consultations found:', consultations.length);
-    
-    // Log each consultation for debugging
-    consultations.forEach((consultation, index) => {
-      console.log(`Consultation ${index + 1}:`, {
-        id: consultation.id,
-        lawyerName: consultation.lawyerName,
-        freelancer_id: consultation.freelancer_id,
-        freelancer_table_id: consultation.freelancer_table_id,
-        freelancer_name: consultation.freelancer_name
-      });
-    });
-    
-    res.json(consultations);
-  } catch (error) {
-    console.error('Error fetching consultations:', error);
-    res.status(500).json({ error: 'Failed to fetch consultations' });
-  }
-};
+        // Validate consultation type
+        if (!['chat', 'video', 'audio'].includes(consultationType)) {
+            return res.status(400).json({ error: 'Invalid consultation type' });
+        }
 
-// PATCH /api/consultations/:id - Cancel or reschedule consultation
-export const updateConsultation = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { action, newDatetime } = req.body;
-    
-    if (!action || !['cancel', 'reschedule'].includes(action)) {
-      return res.status(400).json({ error: 'Action must be either "cancel" or "reschedule"' });
-    }
-    
-    if (action === 'reschedule' && !newDatetime) {
-      return res.status(400).json({ error: 'New datetime is required for rescheduling' });
-    }
-    
-    // Check if consultation exists
-    const consultation = await sql`
-      SELECT id, status, scheduled_at 
-      FROM consultations 
-      WHERE id = ${id}
-    `;
-    
-    if (consultation.length === 0) {
-      return res.status(404).json({ error: 'Consultation not found' });
-    }
-    
-    if (consultation[0].status === 'cancelled') {
-      return res.status(400).json({ error: 'Consultation is already cancelled' });
-    }
-    
-    let result;
-    if (action === 'cancel') {
-      result = await sql`
-        UPDATE consultations 
-        SET status = 'cancelled', updated_at = NOW()
-        WHERE id = ${id}
-        RETURNING id, status
-      `;
-    } else {
-      result = await sql`
-        UPDATE consultations 
-        SET scheduled_at = ${newDatetime}, status = 'rescheduled', updated_at = NOW()
-        WHERE id = ${id}
-        RETURNING id, status, scheduled_at
-      `;
-    }
-    
-    res.json({
-      status: result[0].status,
-      ...(action === 'reschedule' && { newDatetime: result[0].scheduled_at })
-    });
-  } catch (error) {
-    console.error('Error updating consultation:', error);
-    res.status(500).json({ error: 'Failed to update consultation' });
-  }
-};
+        // Convert IDs from UUID to integer if needed
+        let actualClientId = clientId;
+        let actualFreelancerId = freelancerId;
 
-// POST /api/consultations/:id/feedback - Submit feedback for consultation
-export const submitFeedback = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { rating, comments } = req.body;
-    
-    console.log('submitFeedback called with:', { id, rating, comments });
-    
-    if (!rating || rating < 1 || rating > 5) {
-      return res.status(400).json({ error: 'Rating must be between 1 and 5' });
-    }
-    
-    // Check if consultation exists and is completed
-    const consultation = await sql`
-      SELECT id, status 
-      FROM consultations 
-      WHERE id = ${id}
-    `;
-    
-    console.log('Found consultation:', consultation);
-    
-    if (consultation.length === 0) {
-      return res.status(404).json({ error: 'Consultation not found' });
-    }
-    
-    console.log('Consultation status:', consultation[0].status);
-    
-    if (!['confirmed', 'completed'].includes(consultation[0].status)) {
-      return res.status(400).json({ error: 'Feedback can only be submitted for confirmed or completed consultations' });
-    }
-    
-    // Check if feedback already exists
-    const existingFeedback = await sql`
-      SELECT id FROM consultation_feedback WHERE consultation_id = ${id}
-    `;
-    
-    if (existingFeedback.length > 0) {
-      return res.status(400).json({ error: 'Feedback already submitted for this consultation' });
-    }
-    
-    // Create feedback
-    await sql`
-      INSERT INTO consultation_feedback (consultation_id, rating, comments)
-      VALUES (${id}, ${rating}, ${comments})
-    `;
-    
-    // Update freelancer performance score
-    const freelancerId = await sql`
-      SELECT freelancer_id FROM consultations WHERE id = ${id}
-    `;
-    
-    if (freelancerId.length > 0) {
-      // Calculate new average rating
-      const avgRating = await sql`
-        SELECT AVG(cf.rating) as avg_rating
-        FROM consultation_feedback cf
-        JOIN consultations c ON cf.consultation_id = c.id
-        WHERE c.freelancer_id = ${freelancerId[0].freelancer_id}
-      `;
-      
-      if (avgRating[0].avg_rating) {
-        await sql`
-          UPDATE freelancer 
-          SET performance_score = ${avgRating[0].avg_rating}, updated_at = NOW()
-          WHERE user_id = ${freelancerId[0].freelancer_id}
+        // Handle clientId - could be UUID string or integer
+        console.log('Processing clientId:', clientId, 'type:', typeof clientId)
+        if (typeof clientId === 'string' && clientId.includes('-')) {
+            const userResult = await sql`SELECT id FROM "user" WHERE supabase_id = ${clientId}`;
+            if (!userResult.length) {
+                return res.status(404).json({ error: 'Client not found' });
+            }
+            actualClientId = userResult[0].id;
+        }
+
+        // Handle freelancerId - could be UUID string or integer
+        if (typeof freelancerId === 'string' && freelancerId.includes('-')) {
+            const freelancerResult = await sql`SELECT id FROM freelancer WHERE user_id = ${freelancerId}`;
+            if (!freelancerResult.length) {
+                return res.status(404).json({ error: 'Freelancer not found' });
+            }
+            actualFreelancerId = freelancerResult[0].id;
+        }
+
+        // Check if case exists and belongs to the client
+        const caseResult = await sql`
+            SELECT * FROM "case" WHERE id = ${caseId} AND client_id = ${actualClientId}
         `;
-      }
-    }
-    
-    res.json({ message: 'Feedback saved.' });
-  } catch (error) {
-    console.error('Error submitting feedback:', error);
-    res.status(500).json({ error: 'Failed to submit feedback' });
-  }
-}; 
+        
+        if (!caseResult.length) {
+            return res.status(404).json({ error: 'Case not found or access denied' });
+        }
 
-// Update consultation payment status - used by webhook
-export const updateConsultationPayment = async (consultationId, paymentInfo) => {
-  try {
-    const { paymentStatus, paymentId, paymentAmount } = paymentInfo;
-    
-    // Update the consultation with payment information
-    const result = await sql`
-      UPDATE consultations 
-      SET 
-        payment_status = ${paymentStatus},
-        payment_id = ${paymentId},
-        payment_amount = ${paymentAmount || null},
-        updated_at = NOW()
-      WHERE id = ${consultationId}
-      RETURNING id, status, payment_status
-    `;
-    
-    if (result.length === 0) {
-      throw new Error('Consultation not found');
-    }
-    
-    // If payment is successful, update consultation status if needed
-    if (paymentStatus === 'paid') {
-      // Only update if not already completed or cancelled
-      if (!['completed', 'cancelled'].includes(result[0].status)) {
-        await sql`
-          UPDATE consultations 
-          SET status = 'confirmed', updated_at = NOW()
-          WHERE id = ${consultationId}
+        // Create consultation
+        const consultationResult = await sql`
+            INSERT INTO consultations (
+                case_id,
+                freelancer_id,
+                client_id,
+                consultation_type,
+                scheduled_at,
+                duration,
+                notes,
+                meeting_link,
+                status,
+                created_at
+            ) VALUES (
+                ${caseId},
+                ${actualFreelancerId},
+                ${actualClientId},
+                ${consultationType},
+                ${scheduledAt},
+                ${duration || 30},
+                ${notes || null},
+                ${meetingLink || null},
+                'scheduled',
+                NOW()
+            ) RETURNING *
         `;
-      }
+
+        const consultation = consultationResult[0];
+
+        // Update case status if needed
+        if (caseResult[0].status === 'pending') {
+            await sql`
+                UPDATE "case" 
+                SET status = 'active', 
+                    updated_at = NOW() 
+                WHERE id = ${caseId}
+            `;
+        }
+
+        res.status(201).json({
+            success: true,
+            message: 'Consultation scheduled successfully',
+            consultation: consultation
+        });
+    } catch (error) {
+        console.error('Error creating consultation:', error);
+        res.status(500).json({ error: 'Failed to create consultation' });
     }
-    
-    // If payment failed, mark as pending payment
-    if (paymentStatus === 'failed') {
-      // Only update if not already completed or cancelled
-      if (!['completed', 'cancelled'].includes(result[0].status)) {
-        await sql`
-          UPDATE consultations 
-          SET status = 'payment_pending', updated_at = NOW()
-          WHERE id = ${consultationId}
+}
+
+// Get consultations for a user (client or freelancer)
+export async function getConsultations(req, res) {
+    const { userId, userType } = req.params;
+    const { status } = req.query;
+
+    try {
+        // Convert userId from UUID to integer if needed
+        let actualUserId = userId;
+        if (typeof userId === 'string' && userId.includes('-')) {
+            const userResult = await sql`SELECT id FROM "user" WHERE supabase_id = ${userId}`;
+            if (!userResult.length) {
+                return res.status(404).json({ error: 'User not found' });
+            }
+            actualUserId = userResult[0].id;
+        }
+
+        let consultationsQuery;
+        if (userType === 'client') {
+            consultationsQuery = sql`
+                SELECT 
+                    c.*,
+                    u.name as client_name,
+                    u.email as client_email,
+                    f.name as freelancer_name,
+                    f.email as freelancer_email,
+                    f.phone as freelancer_phone,
+                    cs.title as case_title,
+                    cs.description as case_description
+                FROM consultations c
+                LEFT JOIN "user" u ON c.client_id = u.id
+                LEFT JOIN freelancer f ON c.freelancer_id = f.user_id
+                LEFT JOIN "case" cs ON c.case_id = cs.id
+                WHERE c.client_id = ${actualUserId}
+            `;
+        } else if (userType === 'freelancer') {
+            // For freelancers, we need to find the freelancer record first
+            const freelancerResult = await sql`SELECT id FROM freelancer WHERE user_id = ${actualUserId}`;
+            if (!freelancerResult.length) {
+                return res.status(404).json({ error: 'Freelancer not found' });
+            }
+            const freelancerId = freelancerResult[0].id;
+            
+            consultationsQuery = sql`
+                SELECT 
+                    c.*,
+                    u.name as client_name,
+                    u.email as client_email,
+                    f.name as freelancer_name,
+                    f.email as freelancer_email,
+                    f.phone as freelancer_phone,
+                    cs.title as case_title,
+                    cs.description as case_description
+                FROM consultations c
+                LEFT JOIN "user" u ON c.client_id = u.id
+                LEFT JOIN freelancer f ON c.freelancer_id = f.user_id
+                LEFT JOIN "case" cs ON c.case_id = cs.id
+                WHERE c.freelancer_id = ${freelancerId}
+            `;
+        } else {
+            return res.status(400).json({ error: 'Invalid user type' });
+        }
+
+        // Add status filter if provided
+        if (status) {
+            consultationsQuery = sql`${consultationsQuery} AND c.status = ${status}`;
+        }
+
+        consultationsQuery = sql`${consultationsQuery} ORDER BY c.scheduled_at DESC`;
+
+        const consultations = await consultationsQuery;
+
+        res.json({
+            success: true,
+            consultations: consultations
+        });
+    } catch (error) {
+        console.error('Error fetching consultations:', error);
+        res.status(500).json({ error: 'Failed to fetch consultations' });
+    }
+}
+
+// Get a specific consultation
+export async function getConsultation(req, res) {
+    const { consultationId } = req.params;
+
+    try {
+        const consultationResult = await sql`
+            SELECT 
+                c.*,
+                u.name as client_name,
+                u.email as client_email,
+                f.name as freelancer_name,
+                f.email as freelancer_email,
+                f.phone as freelancer_phone,
+                cs.title as case_title,
+                cs.description as case_description
+            FROM consultations c
+            LEFT JOIN "user" u ON c.client_id = u.id
+            LEFT JOIN freelancer f ON c.freelancer_id = f.user_id
+            LEFT JOIN "case" cs ON c.case_id = cs.id
+            WHERE c.id = ${consultationId}
         `;
-      }
+
+        if (!consultationResult.length) {
+            return res.status(404).json({ error: 'Consultation not found' });
+        }
+
+        res.json({
+            success: true,
+            consultation: consultationResult[0]
+        });
+    } catch (error) {
+        console.error('Error fetching consultation:', error);
+        res.status(500).json({ error: 'Failed to fetch consultation' });
     }
-    
-    return { success: true };
-  } catch (error) {
-    console.error('Error updating consultation payment:', error);
-    return { success: false, error: error.message };
-  }
-};
+}
 
-// GET /api/consultations/recent - Get recent consultations for user
-export const getRecentConsultations = async (req, res) => {
-  try {
-    const { userId, limit = 3, offset = 0 } = req.query;
+// Update consultation status
+export async function updateConsultationStatus(req, res) {
+    const { consultationId } = req.params;
+    const { status, notes, meetingLink } = req.body;
 
-    if (!userId) {
-      return res.status(400).json({ error: 'UserId is required' });
+    try {
+        if (!status || !['scheduled', 'in_progress', 'completed', 'cancelled', 'no_show'].includes(status)) {
+            return res.status(400).json({ error: 'Invalid status' });
+        }
+
+        let updateQuery = sql`
+            UPDATE consultations 
+            SET status = ${status}, updated_at = NOW()
+        `;
+
+        if (notes) {
+            updateQuery = sql`${updateQuery}, notes = ${notes}`;
+        }
+
+        if (meetingLink) {
+            updateQuery = sql`${updateQuery}, meeting_link = ${meetingLink}`;
+        }
+
+        updateQuery = sql`${updateQuery} WHERE id = ${consultationId} RETURNING *`;
+
+        const result = await updateQuery;
+
+        if (!result.length) {
+            return res.status(404).json({ error: 'Consultation not found' });
+        }
+
+        res.json({
+            success: true,
+            message: 'Consultation status updated successfully',
+            consultation: result[0]
+        });
+    } catch (error) {
+        console.error('Error updating consultation status:', error);
+        res.status(500).json({ error: 'Failed to update consultation status' });
     }
+}
 
-    // Get user ID from supabase_id
-    const user = await sql`
-      SELECT id FROM "user" WHERE supabase_id = ${userId}
-    `;
-    
-    if (user.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
+// Start consultation (create meeting link if video/audio)
+export async function startConsultation(req, res) {
+    const { consultationId } = req.params;
+    const { meetingLink } = req.body;
+
+    try {
+        // Get consultation details
+        const consultationResult = await sql`
+            SELECT * FROM consultations WHERE id = ${consultationId}
+        `;
+
+        if (!consultationResult.length) {
+            return res.status(404).json({ error: 'Consultation not found' });
+        }
+
+        const consultation = consultationResult[0];
+
+        // Generate meeting link if not provided and consultation type is video/audio
+        let finalMeetingLink = meetingLink;
+        if (!meetingLink && ['video', 'audio'].includes(consultation.consultation_type)) {
+            // In a real app, you would integrate with Zoom, Google Meet, etc.
+            finalMeetingLink = `https://meet.example.com/${consultationId}-${Date.now()}`;
+        }
+
+        // Update consultation status
+        const updateResult = await sql`
+            UPDATE consultations 
+            SET status = 'in_progress',
+                meeting_link = ${finalMeetingLink},
+                started_at = NOW(),
+                updated_at = NOW()
+            WHERE id = ${consultationId}
+            RETURNING *
+        `;
+
+        res.json({
+            success: true,
+            message: 'Consultation started successfully',
+            consultation: updateResult[0],
+            meetingLink: finalMeetingLink
+        });
+    } catch (error) {
+        console.error('Error starting consultation:', error);
+        res.status(500).json({ error: 'Failed to start consultation' });
     }
+}
 
-    // Get recent consultations for the user with pagination
-    const consultations = await sql`
-      SELECT 
-        c.id,
-        c.status,
-        c.created_at,
-        c.updated_at,
-        f.name as lawyer_name
-      FROM consultations c
-      LEFT JOIN freelancer f ON c.freelancer_id = f.user_id
-      WHERE c.user_id = ${user[0].id}
-      ORDER BY c.created_at DESC
-      LIMIT ${parseInt(limit)}
-      OFFSET ${parseInt(offset)}
-    `;
+// End consultation
+export async function endConsultation(req, res) {
+    const { consultationId } = req.params;
+    const { notes, outcome } = req.body;
 
-    // Get total count for pagination
-    const totalCount = await sql`
-      SELECT COUNT(*) as total
-      FROM consultations c
-      WHERE c.user_id = ${user[0].id}
-    `;
+    try {
+        const updateResult = await sql`
+            UPDATE consultations 
+            SET status = 'completed',
+                notes = ${notes || null},
+                outcome = ${outcome || null},
+                ended_at = NOW(),
+                updated_at = NOW()
+            WHERE id = ${consultationId}
+            RETURNING *
+        `;
 
-    res.json({
-      success: true,
-      consultations: consultations,
-      total: totalCount[0]?.total || 0,
-      hasMore: (parseInt(offset) + parseInt(limit)) < (totalCount[0]?.total || 0)
-    });
-  } catch (error) {
-    console.error('Error fetching recent consultations:', error);
-    res.status(500).json({ error: 'Failed to fetch recent consultations' });
-  }
-};
+        if (!updateResult.length) {
+            return res.status(404).json({ error: 'Consultation not found' });
+        }
+
+        res.json({
+            success: true,
+            message: 'Consultation ended successfully',
+            consultation: updateResult[0]
+        });
+    } catch (error) {
+        console.error('Error ending consultation:', error);
+        res.status(500).json({ error: 'Failed to end consultation' });
+    }
+}
+
+// Cancel consultation
+export async function cancelConsultation(req, res) {
+    const { consultationId } = req.params;
+    const { reason } = req.body;
+
+    try {
+        const updateResult = await sql`
+            UPDATE consultations 
+            SET status = 'cancelled',
+                notes = ${reason || null},
+                updated_at = NOW()
+            WHERE id = ${consultationId}
+            RETURNING *
+        `;
+
+        if (!updateResult.length) {
+            return res.status(404).json({ error: 'Consultation not found' });
+        }
+
+        res.json({
+            success: true,
+            message: 'Consultation cancelled successfully',
+            consultation: updateResult[0]
+        });
+    } catch (error) {
+        console.error('Error cancelling consultation:', error);
+        res.status(500).json({ error: 'Failed to cancel consultation' });
+    }
+}
+
+// Get consultation statistics
+export async function getConsultationStats(req, res) {
+    const { userId, userType } = req.params;
+
+    try {
+        // Convert userId from UUID to integer if needed
+        let actualUserId = userId;
+        if (typeof userId === 'string' && userId.includes('-')) {
+            const userResult = await sql`SELECT id FROM "user" WHERE supabase_id = ${userId}`;
+            if (!userResult.length) {
+                return res.status(404).json({ error: 'User not found' });
+            }
+            actualUserId = userResult[0].id;
+        }
+
+        let whereClause;
+        if (userType === 'client') {
+            whereClause = sql`WHERE client_id = ${actualUserId}`;
+        } else if (userType === 'freelancer') {
+            // For freelancers, we need to find the freelancer record first
+            const freelancerResult = await sql`SELECT id FROM freelancer WHERE user_id = ${actualUserId}`;
+            if (!freelancerResult.length) {
+                return res.status(404).json({ error: 'Freelancer not found' });
+            }
+            const freelancerId = freelancerResult[0].id;
+            whereClause = sql`WHERE freelancer_id = ${freelancerId}`;
+        } else {
+            return res.status(400).json({ error: 'Invalid user type' });
+        }
+
+        const stats = await sql`
+            SELECT 
+                COUNT(*) as total_consultations,
+                COUNT(CASE WHEN status = 'scheduled' THEN 1 END) as scheduled,
+                COUNT(CASE WHEN status = 'in_progress' THEN 1 END) as in_progress,
+                COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,
+                COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled,
+                COUNT(CASE WHEN consultation_type = 'chat' THEN 1 END) as chat_consultations,
+                COUNT(CASE WHEN consultation_type = 'video' THEN 1 END) as video_consultations,
+                COUNT(CASE WHEN consultation_type = 'audio' THEN 1 END) as audio_consultations
+            FROM consultations
+            ${whereClause}
+        `;
+
+        res.json({
+            success: true,
+            stats: stats[0]
+        });
+    } catch (error) {
+        console.error('Error fetching consultation stats:', error);
+        res.status(500).json({ error: 'Failed to fetch consultation stats' });
+    }
+}
