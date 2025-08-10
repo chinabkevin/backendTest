@@ -6,6 +6,7 @@ import { addUserProfileFields } from './add_user_profile_fields.js';
 import { addCaseTable } from './add_case_table.js';
 import { addConsultationsTable } from './add_consultations_table.js';
 import { addConsultationColumns } from './add_consultation_columns.js';
+import { addWithdrawalTable } from './add_withdrawal_table.js';
 
 /**
  * Run all migrations in sequence
@@ -45,6 +46,10 @@ async function runMigrations() {
     // Run consultation columns migration
     const consultationColumnsResult = await addConsultationColumns();
     console.log('Consultation columns migration result:', consultationColumnsResult);
+    
+    // Run withdrawal table migration
+    const withdrawalTableResult = await addWithdrawalTable();
+    console.log('Withdrawal table migration result:', withdrawalTableResult);
     
     // Add future migrations here
     

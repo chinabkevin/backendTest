@@ -292,3 +292,163 @@ export async function getDocumentDownloadUrl(req, res) {
         res.status(500).json({ error: 'Failed to get document download URL' });
     }
 } 
+
+// Get documents by user ID
+export async function getUserDocuments(req, res) {
+    const { userId } = req.query;
+    
+    try {
+        if (!userId) {
+            return res.status(400).json({ error: 'userId is required' });
+        }
+
+        console.log('Fetching documents for userId:', userId);
+
+        // First, check if the user exists and get their numeric ID
+        const userCheck = await sql`
+            SELECT id, supabase_id FROM "user" 
+            WHERE supabase_id = ${userId}
+        `;
+
+        if (!userCheck.length) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        const numericUserId = userCheck[0].id;
+        console.log('Found user with numeric ID:', numericUserId);
+
+        // Get all cases for the user (as client)
+        const userCases = await sql`
+            SELECT 
+                c.id,
+                c.title,
+                c.case_summary_url,
+                c.annotated_document_url,
+                c.auto_generated_docs,
+                c.created_at,
+                c.updated_at
+            FROM "case" c
+            WHERE c.client_id = ${numericUserId}
+            ORDER BY c.created_at DESC
+        `;
+
+        console.log('Found cases:', userCases.length);
+
+        // Get all AI documents for the user
+        const aiDocuments = await sql`
+            SELECT 
+                id,
+                user_id,
+                file_name,
+                original_name,
+                file_path,
+                extracted_text,
+                created_at,
+                updated_at
+            FROM ai_documents
+            WHERE user_id = ${numericUserId}
+            ORDER BY created_at DESC
+        `;
+
+        console.log('Found AI documents:', aiDocuments.length);
+
+        // Format case documents
+        const caseDocuments = userCases.flatMap(caseItem => {
+            const documents = [];
+            
+            // Add case summary document if it exists
+            if (caseItem.case_summary_url) {
+                documents.push({
+                    id: `case-${caseItem.id}-summary`,
+                    user_id: numericUserId,
+                    template_id: 'case-summary',
+                    template_name: caseItem.title || 'Case Summary',
+                    form_data: {},
+                    generated_document: caseItem.case_summary_url,
+                    document_type: 'case_summary',
+                    document_fee: 0,
+                    payment_status: 'paid',
+                    download_count: 0,
+                    status: 'active',
+                    created_at: caseItem.created_at
+                });
+            }
+            
+            // Add annotated document if it exists
+            if (caseItem.annotated_document_url) {
+                documents.push({
+                    id: `case-${caseItem.id}-annotated`,
+                    user_id: numericUserId,
+                    template_id: 'case-annotated',
+                    template_name: `${caseItem.title || 'Case'} - Annotated`,
+                    form_data: {},
+                    generated_document: caseItem.annotated_document_url,
+                    document_type: 'case_annotated',
+                    document_fee: 0,
+                    payment_status: 'paid',
+                    download_count: 0,
+                    status: 'active',
+                    created_at: caseItem.updated_at || caseItem.created_at
+                });
+            }
+            
+            // Add auto-generated documents if they exist
+            if (caseItem.auto_generated_docs && Array.isArray(caseItem.auto_generated_docs)) {
+                caseItem.auto_generated_docs.forEach((doc, index) => {
+                    documents.push({
+                        id: `case-${caseItem.id}-auto-${index}`,
+                        user_id: numericUserId,
+                        template_id: 'auto-generated',
+                        template_name: doc.name || `${caseItem.title || 'Case'} - Auto Generated ${index + 1}`,
+                        form_data: {},
+                        generated_document: doc.url || doc.path || '',
+                        document_type: doc.type || 'auto_generated',
+                        document_fee: 0,
+                        payment_status: 'paid',
+                        download_count: 0,
+                        status: 'active',
+                        created_at: caseItem.created_at
+                    });
+                });
+            }
+            
+            return documents;
+        });
+
+        // Format AI documents to match DocumentRecord interface
+        const formattedAiDocuments = aiDocuments.map(doc => ({
+            id: `ai-${doc.id}`,
+            user_id: doc.user_id,
+            template_id: 'ai-document',
+            template_name: doc.original_name || doc.file_name,
+            form_data: {},
+            generated_document: doc.file_path,
+            document_type: 'ai_document',
+            document_fee: 0,
+            payment_status: 'paid',
+            download_count: 0,
+            status: 'active',
+            created_at: doc.created_at
+        }));
+
+        // Combine all documents
+        const allDocuments = [...caseDocuments, ...formattedAiDocuments];
+
+        console.log('Total documents found:', allDocuments.length);
+
+        res.json({
+            success: true,
+            documents: allDocuments,
+            total: allDocuments.length,
+            caseDocuments: caseDocuments.length,
+            aiDocuments: formattedAiDocuments.length
+        });
+    } catch (error) {
+        console.error('Error fetching user documents:', error);
+        res.status(500).json({ 
+            error: 'Failed to fetch user documents',
+            details: error.message,
+            stack: error.stack
+        });
+    }
+} 

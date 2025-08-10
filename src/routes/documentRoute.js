@@ -4,10 +4,14 @@ import {
     getCaseDocuments, 
     uploadCaseDocument, 
     deleteCaseDocument, 
-    getDocumentDownloadUrl 
+    getDocumentDownloadUrl,
+    getUserDocuments
 } from '../controllers/documentController.js';
 
 const router = express.Router();
+
+// Get all documents for a user
+router.get('/user', getUserDocuments);
 
 // Get all documents for a case
 router.get('/case/:caseId', getCaseDocuments);

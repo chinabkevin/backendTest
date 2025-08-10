@@ -4,6 +4,7 @@ import {
     getClientCases, 
     getFreelancerCases,
     getCaseById,
+    getCaseByIdForUser,
     assignCaseToFreelancer, 
     updateCaseStatus,
     updateCaseDocument,
@@ -31,6 +32,7 @@ router.post('/', upload.single('document'), userExists, registerCase);
 router.get('/client/:clientId', getClientCases);
 router.get('/freelancer/:freelancerId', getFreelancerCases);
 router.get('/:caseId', getCaseById);
+router.get('/user/:userId/:caseId', getCaseByIdForUser);
 
 // Case assignment and status updates
 router.post('/assign/:caseId', assignCaseToFreelancer);

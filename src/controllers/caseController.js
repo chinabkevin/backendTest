@@ -256,6 +256,34 @@ export async function getCaseById(req, res) {
     }
 }
 
+export async function getCaseByIdForUser(req, res) {
+    const { caseId, userId } = req.params;
+    try {
+        // First check if the user has access to this case (either as client or freelancer)
+        const caseAccess = await sql`
+            SELECT 
+                c.*,
+                u.name as client_name,
+                u.email as client_email,
+                f.name as freelancer_name,
+                f.email as freelancer_email
+            FROM "case" c
+            LEFT JOIN "user" u ON c.client_id = u.id
+            LEFT JOIN freelancer f ON c.freelancer_id = f.user_id
+            WHERE c.id = ${caseId} AND (c.client_id = ${userId} OR c.freelancer_id = ${userId})
+        `;
+        
+        if (caseAccess.length === 0) {
+            return res.status(404).json({ error: 'Case not found or access denied' });
+        }
+        
+        res.json(caseAccess[0]);
+    } catch (error) {
+        console.error('Error fetching case for user:', error);
+        res.status(500).json({ error: 'Failed to fetch case' });
+    }
+}
+
 export async function assignCaseToFreelancer(req, res) {
     const { caseId } = req.params;
     const { freelancerId } = req.body;
