@@ -336,9 +336,14 @@ export async function listFreelancerCases(req, res) {
 }
 
 export async function getFreelancerCaseById(req, res) {
-    const { userId, caseId } = req.params;
-    
     try {
+        const { userId, caseId } = req.params;
+        console.log('getFreelancerCaseById called with:', { userId, caseId });
+        
+        if (!userId || !caseId) {
+            return res.status(400).json({ error: 'Missing userId or caseId' });
+        }
+        
         // Handle both Supabase UUID and numeric database ID
         let dbUserId = userId;
         if (userId.includes('-')) { // This is a Supabase UUID
@@ -370,7 +375,7 @@ export async function getFreelancerCaseById(req, res) {
         
         res.json(caseData[0]);
     } catch (error) {
-        console.error('Error getting case:', error);
+        console.error('Error in getFreelancerCaseById:', error);
         res.status(500).json({ error: 'Failed to get case' });
     }
 }

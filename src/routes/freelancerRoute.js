@@ -1,6 +1,5 @@
 import express from 'express';
-import { registerFreelancer } from '../controllers/freelancerController.js';
-import { getFreelancers, getFreelancerById, deleteFreelancer, updateFreelancerProfile, setFreelancerAvailability, getFreelancerEarnings, getFreelancerRatings, updateFreelancerCredentials, listFreelancerCases, getFreelancerCaseById, acceptCase, declineCase, completeCase, annotateCaseDocument, requestWithdrawal, searchFreelancers } from '../controllers/freelancerController.js';
+import { registerFreelancer, getFreelancers, getFreelancerById, deleteFreelancer, updateFreelancerProfile, setFreelancerAvailability, getFreelancerEarnings, getFreelancerRatings, updateFreelancerCredentials, listFreelancerCases, getFreelancerCaseById, acceptCase, declineCase, completeCase, annotateCaseDocument, requestWithdrawal, searchFreelancers } from '../controllers/freelancerController.js';
 import { userExists } from '../middleware/userExists.js';
 
 const router = express.Router();
