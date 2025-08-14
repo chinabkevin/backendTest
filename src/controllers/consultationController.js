@@ -541,7 +541,12 @@ export const bookConsultation = async (req, res) => {
         roomUrl: consultation.meeting_link,
         method: method, // Return original method name for frontend compatibility
         consultationType: consultation.consultation_type,
-        instructions
+        instructions,
+        fee: {
+          base_fee: baseFee,
+          additional_fee: voiceCallFee,
+          total: totalFee
+        }
       });
     } catch (error) {
       console.error('Error booking consultation:', error);
