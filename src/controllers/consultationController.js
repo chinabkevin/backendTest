@@ -126,7 +126,7 @@ export async function getConsultations(req, res) {
 
         let consultationsQuery;
         if (userType === 'client') {
-                    consultationsQuery = sql`
+            consultationsQuery = sql`
             SELECT 
                 c.*,
                 u.name as client_name,
@@ -140,9 +140,9 @@ export async function getConsultations(req, res) {
                 p.amount as payment_amount
             FROM consultations c
             LEFT JOIN "user" u ON c.client_id = u.id
-            LEFT JOIN freelancer f ON c.freelancer_id = f.user_id
+            LEFT JOIN freelancer f ON c.freelancer_id = f.id
             LEFT JOIN "case" cs ON c.case_id = cs.id
-            LEFT JOIN payments p ON c.payment_id = p.id
+            LEFT JOIN payments p ON p.consultation_id = c.id
             WHERE c.client_id = ${actualUserId}
         `;
         } else if (userType === 'freelancer') {
@@ -161,15 +161,15 @@ export async function getConsultations(req, res) {
                     f.name as freelancer_name,
                     f.email as freelancer_email,
                     f.phone as freelancer_phone,
-                    cs.title as case_title,
-                    cs.description as case_description,
-                    p.status as payment_status,
-                    p.amount as payment_amount
+                cs.title as case_title,
+                cs.description as case_description,
+                p.status as payment_status,
+                p.amount as payment_amount
                 FROM consultations c
                 LEFT JOIN "user" u ON c.client_id = u.id
-                LEFT JOIN freelancer f ON c.freelancer_id = f.user_id
+                LEFT JOIN freelancer f ON c.freelancer_id = f.id
                 LEFT JOIN "case" cs ON c.case_id = cs.id
-                LEFT JOIN payments p ON c.payment_id = p.id
+                LEFT JOIN payments p ON p.consultation_id = c.id
                 WHERE c.freelancer_id = ${freelancerId}
             `;
         } else {
@@ -212,7 +212,7 @@ export async function getConsultation(req, res) {
                 cs.description as case_description
             FROM consultations c
             LEFT JOIN "user" u ON c.client_id = u.id
-            LEFT JOIN freelancer f ON c.freelancer_id = f.user_id
+            LEFT JOIN freelancer f ON c.freelancer_id = f.id
             LEFT JOIN "case" cs ON c.case_id = cs.id
             WHERE c.id = ${consultationId}
         `;
@@ -283,7 +283,7 @@ export async function startConsultation(req, res) {
         const consultationResult = await sql`
             SELECT c.*, p.status as payment_status 
             FROM consultations c
-            LEFT JOIN payments p ON c.payment_id = p.id
+            LEFT JOIN payments p ON p.consultation_id = c.id
             WHERE c.id = ${consultationId}
         `;
 
@@ -364,28 +364,47 @@ export async function endConsultation(req, res) {
     }
 }
 
-// Update consultation payment status
+// Update consultation payment status - now updates the payments table directly
 export async function updateConsultationPayment(consultationId, paymentData) {
     try {
         const { paymentStatus, paymentId, paymentAmount } = paymentData;
         
-        const updateResult = await sql`
-            UPDATE consultations 
-            SET payment_status = ${paymentStatus},
-                payment_id = ${paymentId},
-                payment_amount = ${paymentAmount},
-                paid_at = CASE WHEN ${paymentStatus} = 'paid' THEN NOW() ELSE paid_at END,
+        // Update or create payment record in payments table
+        const paymentResult = await sql`
+            INSERT INTO payments (
+                user_id,
+                consultation_id,
+                amount,
+                status,
+                service_type,
+                stripe_payment_intent_id,
+                created_at,
+                updated_at
+            ) VALUES (
+                (SELECT client_id FROM consultations WHERE id = ${consultationId}),
+                ${consultationId},
+                ${paymentAmount},
+                ${paymentStatus},
+                'consultation',
+                ${paymentId},
+                NOW(),
+                NOW()
+            )
+            ON CONFLICT (consultation_id) 
+            DO UPDATE SET
+                status = ${paymentStatus},
+                amount = ${paymentAmount},
+                stripe_payment_intent_id = ${paymentId},
                 updated_at = NOW()
-            WHERE id = ${consultationId}
             RETURNING *
         `;
 
-        if (!updateResult.length) {
-            throw new Error('Consultation not found');
+        if (!paymentResult.length) {
+            throw new Error('Failed to update payment record');
         }
 
         console.log(`Payment status updated for consultation ${consultationId}: ${paymentStatus}`);
-        return updateResult[0];
+        return paymentResult[0];
     } catch (error) {
         console.error('Error updating consultation payment status:', error);
         throw error;

@@ -411,7 +411,7 @@ export async function completeCase(req, res) {
         const caseData = await sql`
             SELECT c.*, f.user_id as freelancer_id, f.total_earnings 
             FROM "case" c 
-            LEFT JOIN freelancer f ON c.freelancer_id = f.user_id 
+            LEFT JOIN freelancer f ON c.freelancer_id = f.id 
             WHERE c.id = ${caseId}
         `;
         
@@ -515,7 +515,7 @@ export async function annotateCaseDocument(req, res) {
         const caseData = await sql`
             SELECT c.*, f.user_id as freelancer_id 
             FROM "case" c 
-            LEFT JOIN freelancer f ON c.freelancer_id = f.user_id 
+            LEFT JOIN freelancer f ON c.freelancer_id = f.id 
             WHERE c.id = ${caseId}
         `;
         

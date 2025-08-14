@@ -178,7 +178,7 @@ export async function getClientCases(req, res) {
                 f.email as freelancer_email
             FROM "case" c
             LEFT JOIN "user" u ON c.client_id = u.id
-            LEFT JOIN freelancer f ON c.freelancer_id = f.user_id
+            LEFT JOIN freelancer f ON c.freelancer_id = f.id
             WHERE c.client_id = ${actualClientId} 
             ORDER BY c.created_at DESC
         `;
@@ -241,7 +241,7 @@ export async function getCaseById(req, res) {
                 f.email as freelancer_email
             FROM "case" c
             LEFT JOIN "user" u ON c.client_id = u.id
-            LEFT JOIN freelancer f ON c.freelancer_id = f.user_id
+            LEFT JOIN freelancer f ON c.freelancer_id = f.id
             WHERE c.id = ${caseId}
         `;
         
@@ -269,7 +269,7 @@ export async function getCaseByIdForUser(req, res) {
                 f.email as freelancer_email
             FROM "case" c
             LEFT JOIN "user" u ON c.client_id = u.id
-            LEFT JOIN freelancer f ON c.freelancer_id = f.user_id
+            LEFT JOIN freelancer f ON c.freelancer_id = f.id
             WHERE c.id = ${caseId} AND (c.client_id = ${userId} OR c.freelancer_id = ${userId})
         `;
         

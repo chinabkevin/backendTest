@@ -9,6 +9,7 @@ import { addConsultationColumns } from './add_consultation_columns.js';
 import { addWithdrawalTable } from './add_withdrawal_table.js';
 import { fixConsultationFreelancerFK } from './fix_consultation_freelancer_fk.js';
 import { addPaymentStatusToConsultations } from './add_payment_status_to_consultations.js';
+import { addUniqueConstraintToPayments } from './add_unique_constraint_to_payments.js';
 
 /**
  * Run all migrations in sequence
@@ -60,6 +61,10 @@ async function runMigrations() {
     // Run consultation payment status migration
     const consultationPaymentResult = await addPaymentStatusToConsultations();
     console.log('Consultation payment status migration result:', consultationPaymentResult);
+    
+    // Run unique constraint migration for payments table
+    const uniqueConstraintResult = await addUniqueConstraintToPayments();
+    console.log('Unique constraint migration result:', uniqueConstraintResult);
     
     // Add future migrations here
     
