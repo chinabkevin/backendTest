@@ -383,7 +383,7 @@ export async function getFreelancerCaseById(req, res) {
 export async function acceptCase(req, res) {
     const { caseId } = req.params;
     try {
-        const updated = await sql`UPDATE "case" SET status = 'accepted', accepted_at = NOW() WHERE id = ${caseId} RETURNING *`;
+        const updated = await sql`UPDATE "case" SET status = 'active', accepted_at = NOW() WHERE id = ${caseId} RETURNING *`;
         if (!updated.length) return res.status(404).json({ error: 'Case not found' });
         res.json(updated[0]);
     } catch (error) {
