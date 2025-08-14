@@ -8,6 +8,7 @@ import { addConsultationsTable } from './add_consultations_table.js';
 import { addConsultationColumns } from './add_consultation_columns.js';
 import { addWithdrawalTable } from './add_withdrawal_table.js';
 import { fixConsultationFreelancerFK } from './fix_consultation_freelancer_fk.js';
+import { addPaymentStatusToConsultations } from './add_payment_status_to_consultations.js';
 
 /**
  * Run all migrations in sequence
@@ -55,6 +56,10 @@ async function runMigrations() {
     // Run consultation foreign key fix migration
     const consultationFKResult = await fixConsultationFreelancerFK();
     console.log('Consultation FK fix migration result:', consultationFKResult);
+    
+    // Run consultation payment status migration
+    const consultationPaymentResult = await addPaymentStatusToConsultations();
+    console.log('Consultation payment status migration result:', consultationPaymentResult);
     
     // Add future migrations here
     

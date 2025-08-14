@@ -126,22 +126,25 @@ export async function getConsultations(req, res) {
 
         let consultationsQuery;
         if (userType === 'client') {
-            consultationsQuery = sql`
-                SELECT 
-                    c.*,
-                    u.name as client_name,
-                    u.email as client_email,
-                    f.name as freelancer_name,
-                    f.email as freelancer_email,
-                    f.phone as freelancer_phone,
-                    cs.title as case_title,
-                    cs.description as case_description
-                FROM consultations c
-                LEFT JOIN "user" u ON c.client_id = u.id
-                LEFT JOIN freelancer f ON c.freelancer_id = f.user_id
-                LEFT JOIN "case" cs ON c.case_id = cs.id
-                WHERE c.client_id = ${actualUserId}
-            `;
+                    consultationsQuery = sql`
+            SELECT 
+                c.*,
+                u.name as client_name,
+                u.email as client_email,
+                f.name as freelancer_name,
+                f.email as freelancer_email,
+                f.phone as freelancer_phone,
+                cs.title as case_title,
+                cs.description as case_description,
+                p.status as payment_status,
+                p.amount as payment_amount
+            FROM consultations c
+            LEFT JOIN "user" u ON c.client_id = u.id
+            LEFT JOIN freelancer f ON c.freelancer_id = f.user_id
+            LEFT JOIN "case" cs ON c.case_id = cs.id
+            LEFT JOIN payments p ON c.payment_id = p.id
+            WHERE c.client_id = ${actualUserId}
+        `;
         } else if (userType === 'freelancer') {
             // For freelancers, we need to find the freelancer record first
             const freelancerResult = await sql`SELECT id FROM freelancer WHERE user_id = ${actualUserId}`;
@@ -159,11 +162,14 @@ export async function getConsultations(req, res) {
                     f.email as freelancer_email,
                     f.phone as freelancer_phone,
                     cs.title as case_title,
-                    cs.description as case_description
+                    cs.description as case_description,
+                    p.status as payment_status,
+                    p.amount as payment_amount
                 FROM consultations c
                 LEFT JOIN "user" u ON c.client_id = u.id
                 LEFT JOIN freelancer f ON c.freelancer_id = f.user_id
                 LEFT JOIN "case" cs ON c.case_id = cs.id
+                LEFT JOIN payments p ON c.payment_id = p.id
                 WHERE c.freelancer_id = ${freelancerId}
             `;
         } else {
@@ -273,9 +279,12 @@ export async function startConsultation(req, res) {
     const { meetingLink } = req.body;
 
     try {
-        // Get consultation details
+        // Get consultation details with payment status
         const consultationResult = await sql`
-            SELECT * FROM consultations WHERE id = ${consultationId}
+            SELECT c.*, p.status as payment_status 
+            FROM consultations c
+            LEFT JOIN payments p ON c.payment_id = p.id
+            WHERE c.id = ${consultationId}
         `;
 
         if (!consultationResult.length) {
@@ -283,6 +292,15 @@ export async function startConsultation(req, res) {
         }
 
         const consultation = consultationResult[0];
+
+        // Check if payment is completed
+        if (consultation.payment_status !== 'completed' && consultation.payment_status !== 'paid') {
+            return res.status(403).json({ 
+                error: 'Payment required', 
+                message: 'Consultation cannot start until payment is completed. Please wait for client payment confirmation.',
+                paymentStatus: consultation.payment_status || 'pending'
+            });
+        }
 
         // Generate meeting link if not provided and consultation type is video/audio
         let finalMeetingLink = meetingLink;
@@ -343,6 +361,34 @@ export async function endConsultation(req, res) {
     } catch (error) {
         console.error('Error ending consultation:', error);
         res.status(500).json({ error: 'Failed to end consultation' });
+    }
+}
+
+// Update consultation payment status
+export async function updateConsultationPayment(consultationId, paymentData) {
+    try {
+        const { paymentStatus, paymentId, paymentAmount } = paymentData;
+        
+        const updateResult = await sql`
+            UPDATE consultations 
+            SET payment_status = ${paymentStatus},
+                payment_id = ${paymentId},
+                payment_amount = ${paymentAmount},
+                paid_at = CASE WHEN ${paymentStatus} = 'paid' THEN NOW() ELSE paid_at END,
+                updated_at = NOW()
+            WHERE id = ${consultationId}
+            RETURNING *
+        `;
+
+        if (!updateResult.length) {
+            throw new Error('Consultation not found');
+        }
+
+        console.log(`Payment status updated for consultation ${consultationId}: ${paymentStatus}`);
+        return updateResult[0];
+    } catch (error) {
+        console.error('Error updating consultation payment status:', error);
+        throw error;
     }
 }
 
