@@ -127,21 +127,24 @@ export async function getConsultations(req, res) {
         let consultationsQuery;
         if (userType === 'client') {
             consultationsQuery = sql`
-                SELECT 
-                    c.*,
-                    u.name as client_name,
-                    u.email as client_email,
-                    f.name as freelancer_name,
-                    f.email as freelancer_email,
-                    f.phone as freelancer_phone,
-                    cs.title as case_title,
-                    cs.description as case_description
-                FROM consultations c
-                LEFT JOIN "user" u ON c.client_id = u.id
-                LEFT JOIN freelancer f ON c.freelancer_id = f.user_id
-                LEFT JOIN "case" cs ON c.case_id = cs.id
-                WHERE c.client_id = ${actualUserId}
-            `;
+            SELECT 
+                c.*,
+                u.name as client_name,
+                u.email as client_email,
+                f.name as freelancer_name,
+                f.email as freelancer_email,
+                f.phone as freelancer_phone,
+                cs.title as case_title,
+                cs.description as case_description,
+                p.status as payment_status,
+                p.amount as payment_amount
+            FROM consultations c
+            LEFT JOIN "user" u ON c.client_id = u.id
+            LEFT JOIN freelancer f ON c.freelancer_id = f.id
+            LEFT JOIN "case" cs ON c.case_id = cs.id
+            LEFT JOIN payments p ON p.consultation_id = c.id
+            WHERE c.client_id = ${actualUserId}
+        `;
         } else if (userType === 'freelancer') {
             // For freelancers, we need to find the freelancer record first
             const freelancerResult = await sql`SELECT id FROM freelancer WHERE user_id = ${actualUserId}`;
@@ -158,12 +161,15 @@ export async function getConsultations(req, res) {
                     f.name as freelancer_name,
                     f.email as freelancer_email,
                     f.phone as freelancer_phone,
-                    cs.title as case_title,
-                    cs.description as case_description
+                cs.title as case_title,
+                cs.description as case_description,
+                p.status as payment_status,
+                p.amount as payment_amount
                 FROM consultations c
                 LEFT JOIN "user" u ON c.client_id = u.id
-                LEFT JOIN freelancer f ON c.freelancer_id = f.user_id
+                LEFT JOIN freelancer f ON c.freelancer_id = f.id
                 LEFT JOIN "case" cs ON c.case_id = cs.id
+                LEFT JOIN payments p ON p.consultation_id = c.id
                 WHERE c.freelancer_id = ${freelancerId}
             `;
         } else {
@@ -206,7 +212,7 @@ export async function getConsultation(req, res) {
                 cs.description as case_description
             FROM consultations c
             LEFT JOIN "user" u ON c.client_id = u.id
-            LEFT JOIN freelancer f ON c.freelancer_id = f.user_id
+            LEFT JOIN freelancer f ON c.freelancer_id = f.id
             LEFT JOIN "case" cs ON c.case_id = cs.id
             WHERE c.id = ${consultationId}
         `;
@@ -273,9 +279,12 @@ export async function startConsultation(req, res) {
     const { meetingLink } = req.body;
 
     try {
-        // Get consultation details
+        // Get consultation details with payment status
         const consultationResult = await sql`
-            SELECT * FROM consultations WHERE id = ${consultationId}
+            SELECT c.*, p.status as payment_status 
+            FROM consultations c
+            LEFT JOIN payments p ON p.consultation_id = c.id
+            WHERE c.id = ${consultationId}
         `;
 
         if (!consultationResult.length) {
@@ -283,6 +292,15 @@ export async function startConsultation(req, res) {
         }
 
         const consultation = consultationResult[0];
+
+        // Check if payment is completed
+        if (consultation.payment_status !== 'completed' && consultation.payment_status !== 'paid') {
+            return res.status(403).json({ 
+                error: 'Payment required', 
+                message: 'Consultation cannot start until payment is completed. Please wait for client payment confirmation.',
+                paymentStatus: consultation.payment_status || 'pending'
+            });
+        }
 
         // Generate meeting link if not provided and consultation type is video/audio
         let finalMeetingLink = meetingLink;
@@ -343,6 +361,53 @@ export async function endConsultation(req, res) {
     } catch (error) {
         console.error('Error ending consultation:', error);
         res.status(500).json({ error: 'Failed to end consultation' });
+    }
+}
+
+// Update consultation payment status - now updates the payments table directly
+export async function updateConsultationPayment(consultationId, paymentData) {
+    try {
+        const { paymentStatus, paymentId, paymentAmount } = paymentData;
+        
+        // Update or create payment record in payments table
+        const paymentResult = await sql`
+            INSERT INTO payments (
+                user_id,
+                consultation_id,
+                amount,
+                status,
+                service_type,
+                stripe_payment_intent_id,
+                created_at,
+                updated_at
+            ) VALUES (
+                (SELECT client_id FROM consultations WHERE id = ${consultationId}),
+                ${consultationId},
+                ${paymentAmount},
+                ${paymentStatus},
+                'consultation',
+                ${paymentId},
+                NOW(),
+                NOW()
+            )
+            ON CONFLICT (consultation_id) 
+            DO UPDATE SET
+                status = ${paymentStatus},
+                amount = ${paymentAmount},
+                stripe_payment_intent_id = ${paymentId},
+                updated_at = NOW()
+            RETURNING *
+        `;
+
+        if (!paymentResult.length) {
+            throw new Error('Failed to update payment record');
+        }
+
+        console.log(`Payment status updated for consultation ${consultationId}: ${paymentStatus}`);
+        return paymentResult[0];
+    } catch (error) {
+        console.error('Error updating consultation payment status:', error);
+        throw error;
     }
 }
 
