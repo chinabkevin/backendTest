@@ -7,7 +7,8 @@ import {
     startConsultation,
     endConsultation,
     cancelConsultation,
-    getConsultationStats
+    getConsultationStats,
+    bookConsultation
 } from '../controllers/consultationController.js';
 
 const router = express.Router();
@@ -35,5 +36,10 @@ router.post('/consultations/:consultationId/cancel', cancelConsultation);
 
 // Get consultation statistics
 router.get('/consultations/:userType/:userId/stats', getConsultationStats);
+
+
+// POST /api/consultations/book - Book a consultation
+router.post('/consultations/book', bookConsultation);
+
 
 export default router; 

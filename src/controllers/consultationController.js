@@ -429,3 +429,123 @@ export async function getConsultationStats(req, res) {
         res.status(500).json({ error: 'Failed to fetch consultation stats' });
     }
 }
+
+// POST /api/consultations/book - Books a legal consultation
+export const bookConsultation = async (req, res) => {
+    try {
+      const { userId, lawyerId, datetime, method, notes, caseId } = req.body;
+      console.log("bookConsultation request body", req.body);
+      
+      // Validate required fields
+      if (!userId || !lawyerId || !datetime || !method) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+      
+      // Validate method and map to consultation_type
+      const methodMapping = {
+        'video': 'video',
+        'chat': 'chat', 
+        'voice': 'audio'
+      };
+      
+      if (!['video', 'chat', 'voice'].includes(method)) {
+        return res.status(400).json({ error: 'Method must be either "video", "chat", or "voice"' });
+      }
+      
+      const consultationType = methodMapping[method];
+      
+      // Check if freelancer exists and is available
+      const freelancer = await sql`
+        SELECT id, is_available, name 
+        FROM freelancer 
+        WHERE user_id = ${lawyerId} AND is_available = true
+      `;
+      console.log("freelancer ++++++++++++++", freelancer);
+      
+      if (freelancer.length === 0) {
+        return res.status(404).json({ error: 'Lawyer not found or not available' });
+      }
+      
+      // Check if user exists
+      const user = await sql`
+        SELECT id FROM "user" WHERE supabase_id = ${userId}
+      `;
+      
+      if (user.length === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      // If caseId is provided, verify it belongs to the user
+      if (caseId) {
+        const caseResult = await sql`
+          SELECT id FROM "case" WHERE id = ${caseId} AND client_id = ${user[0].id}
+        `;
+        
+        if (caseResult.length === 0) {
+          return res.status(404).json({ error: 'Case not found or access denied' });
+        }
+      }
+      
+      // Generate meeting link for video consultations
+      const meetingLink = consultationType === 'video' 
+        ? `https://meet.jit.si/advoqat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        : null;
+      
+      // Calculate additional fee for voice call
+      const baseFee = 50; // Base consultation fee
+      const voiceCallFee = method === 'voice' ? 15 : 0; // Additional fee for voice calls
+      const totalFee = baseFee + voiceCallFee;
+      
+      // Create consultation - store the freelancer's actual ID, not user_id
+      const [consultation] = await sql`
+        INSERT INTO consultations (
+          client_id, 
+          freelancer_id, 
+          scheduled_at, 
+          consultation_type, 
+          notes, 
+          meeting_link, 
+          status,
+          case_id,
+          duration,
+          created_at
+        )
+        VALUES (
+          ${user[0].id}, 
+          ${freelancer[0].id}, 
+          ${datetime}, 
+          ${consultationType}, 
+          ${notes}, 
+          ${meetingLink}, 
+          'scheduled',
+          ${caseId || null},
+          30,
+          NOW()
+        )
+        RETURNING id, meeting_link, status, consultation_type
+      `;
+      
+      // Create response with appropriate instructions based on method
+      let instructions = '';
+      if (consultation.consultation_type === 'audio') {
+        instructions = 'The lawyer will call you at the scheduled time.';
+      } else if (consultation.consultation_type === 'video') {
+        instructions = 'Join the video room at the scheduled time using the provided link.';
+      } else {
+        instructions = 'Chat will be available at the scheduled time.';
+      }
+      
+      res.status(201).json({
+        status: consultation.status,
+        consultationId: consultation.id,
+        roomUrl: consultation.meeting_link,
+        method: method, // Return original method name for frontend compatibility
+        consultationType: consultation.consultation_type,
+        instructions
+      });
+    } catch (error) {
+      console.error('Error booking consultation:', error);
+      res.status(500).json({ error: 'Failed to book consultation' });
+    }
+  };
+  
