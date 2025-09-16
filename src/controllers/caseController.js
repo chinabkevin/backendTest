@@ -1,5 +1,6 @@
 import { sql } from "../config/db.js";
 import { uploadCaseDocument, validateDocumentFile } from "../utils/fileUpload.js";
+import { createNotification } from "./notificationController.js";
 
 export async function registerCase(req, res) {
     const { 
@@ -142,6 +143,60 @@ export async function registerCase(req, res) {
                 console.error('File upload failed:', uploadResult.error);
                 // Continue without file upload, but log the error
             }
+        }
+
+        // Send notifications to available freelancers
+        try {
+            // Get all available freelancers who match the expertise area (if specified)
+            let availableFreelancers;
+            if (expertiseArea) {
+                availableFreelancers = await sql`
+                    SELECT f.*, u.supabase_id as user_supabase_id
+                    FROM freelancer f
+                    JOIN "user" u ON f.user_id = u.id
+                    WHERE f.is_available = true 
+                    AND f.is_verified = true
+                    AND ${expertiseArea} = ANY(f.expertise_areas)
+                `;
+            } else {
+                availableFreelancers = await sql`
+                    SELECT f.*, u.supabase_id as user_supabase_id
+                    FROM freelancer f
+                    JOIN "user" u ON f.user_id = u.id
+                    WHERE f.is_available = true 
+                    AND f.is_verified = true
+                `;
+            }
+
+            // Send notification to each available freelancer
+            for (const freelancer of availableFreelancers) {
+                try {
+                    await createNotification(
+                        freelancer.user_supabase_id, // Use Supabase ID for notification
+                        'case_assigned',
+                        'New Case Available',
+                        `A new case "${title}" has been submitted and is available for assignment. ${expertiseArea ? `Expertise area: ${expertiseArea}` : ''} Priority: ${priority || 'medium'}`,
+                        {
+                            case_id: newCase[0].id,
+                            case_title: title,
+                            expertise_area: expertiseArea,
+                            priority: priority || 'medium',
+                            jurisdiction: jurisdiction,
+                            case_type: caseType,
+                            client_notes: clientNotes
+                        }
+                    );
+                    console.log(`Notification sent to freelancer ${freelancer.name} (ID: ${freelancer.id})`);
+                } catch (notificationError) {
+                    console.error(`Failed to send notification to freelancer ${freelancer.name}:`, notificationError);
+                    // Continue with other freelancers even if one fails
+                }
+            }
+
+            console.log(`Sent notifications to ${availableFreelancers.length} available freelancers for case ${newCase[0].id}`);
+        } catch (notificationError) {
+            console.error('Error sending notifications to freelancers:', notificationError);
+            // Don't fail the case creation if notifications fail
         }
         
         res.status(201).json({

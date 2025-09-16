@@ -10,6 +10,7 @@ import { addWithdrawalTable } from './add_withdrawal_table.js';
 import { fixConsultationFreelancerFK } from './fix_consultation_freelancer_fk.js';
 import { addPaymentStatusToConsultations } from './add_payment_status_to_consultations.js';
 import { addUniqueConstraintToPayments } from './add_unique_constraint_to_payments.js';
+import { addNotificationsTable } from './add_notifications_table.js';
 
 /**
  * Run all migrations in sequence
@@ -65,6 +66,10 @@ async function runMigrations() {
     // Run unique constraint migration for payments table
     const uniqueConstraintResult = await addUniqueConstraintToPayments();
     console.log('Unique constraint migration result:', uniqueConstraintResult);
+    
+    // Run notifications table migration
+    const notificationsResult = await addNotificationsTable();
+    console.log('Notifications table migration result:', notificationsResult);
     
     // Add future migrations here
     

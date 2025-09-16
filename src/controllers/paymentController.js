@@ -1,5 +1,6 @@
 import stripe from '../config/stripe.js';
 import { sql } from '../config/db.js';
+import { createNotification } from './notificationController.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -210,6 +211,47 @@ const handleCompletedCheckout = async (session) => {
         paymentId: session.id,
         paymentAmount: session.amount_total,
       });
+
+      // Get consultation details for notifications
+      const consultationResult = await sql`
+        SELECT c.*, f.user_id as freelancer_user_id, f.name as freelancer_name, u.supabase_id as client_supabase_id
+        FROM consultations c
+        LEFT JOIN freelancer f ON c.freelancer_id = f.id
+        LEFT JOIN "user" u ON c.client_id = u.id
+        WHERE c.id = ${consultationId}
+      `;
+
+      if (consultationResult.length > 0) {
+        const consultation = consultationResult[0];
+        
+        // Create notification for the freelancer
+        await createNotification(
+          consultation.freelancer_user_id,
+          'payment_received',
+          'Payment Received',
+          `You have received a payment of $${(session.amount_total / 100).toFixed(2)} for consultation scheduled on ${new Date(consultation.scheduled_at).toLocaleDateString()}.`,
+          { 
+            consultation_id: consultationId,
+            amount: session.amount_total,
+            payment_id: session.id,
+            scheduled_at: consultation.scheduled_at
+          }
+        );
+
+        // Create notification for the client
+        await createNotification(
+          consultation.client_supabase_id,
+          'payment_completed',
+          'Payment Completed',
+          `Your payment of $${(session.amount_total / 100).toFixed(2)} for consultation with ${consultation.freelancer_name} has been processed successfully.`,
+          { 
+            consultation_id: consultationId,
+            amount: session.amount_total,
+            payment_id: session.id,
+            freelancer_name: consultation.freelancer_name
+          }
+        );
+      }
 
       console.log(`Payment confirmed for consultation ${consultationId}`);
     } else if (documentId) {
