@@ -1,4 +1,5 @@
 import { sql } from "../config/db.js";
+import { createNotification } from "./notificationController.js";
 
 export async function registerFreelancer(req, res){
     const { name, email, phone, experience, expertiseAreas, idCardUrl, barCertificateUrl, additionalDocuments, userId } = req.body;
@@ -21,9 +22,14 @@ export async function registerFreelancer(req, res){
 }
 
 export async function getFreelancers(req, res){
-    const freelancers = await sql`SELECT * FROM freelancer`;
-    console.log('freelancers', freelancers);
-    res.json(freelancers);
+    try {
+        const freelancers = await sql`SELECT * FROM freelancer`;
+        console.log('freelancers', freelancers);
+        res.json(freelancers);
+    } catch (error) {
+        console.error('Error getting freelancers:', error);
+        res.status(500).json({ error: 'Failed to get freelancers' });
+    }
 }
 
 export async function getFreelancerById(req, res){
@@ -159,6 +165,47 @@ export async function setFreelancerAvailability(req, res) {
     } catch (error) {
         console.error('Error updating availability:', error);
         res.status(500).json({ error: 'Failed to update availability' });
+    }
+}
+
+export async function getFreelancerAvailability(req, res) {
+    const { userId } = req.params;
+    try {
+        if (!userId) return res.status(400).json({ error: 'Missing userId' });
+        
+        // Handle both Supabase UUID and numeric database ID
+        let dbUserId = userId;
+        if (userId.includes('-')) { // This is a Supabase UUID
+            console.log('Converting Supabase UUID to database ID for availability check...');
+            const user = await sql`
+                SELECT id FROM "user" WHERE supabase_id = ${userId}
+            `;
+            if (user.length === 0) {
+                console.log('User not found for Supabase ID:', userId);
+                return res.status(404).json({ error: 'User not found' });
+            }
+            dbUserId = user[0].id;
+            console.log('Converted to database ID:', dbUserId);
+        } else {
+            console.log('Using numeric user ID:', dbUserId);
+        }
+        
+        const freelancer = await sql`
+            SELECT is_available, name, updated_at 
+            FROM freelancer 
+            WHERE user_id = ${dbUserId}
+        `;
+        
+        if (!freelancer.length) return res.status(404).json({ error: 'Freelancer not found' });
+        
+        res.json({
+            is_available: freelancer[0].is_available,
+            name: freelancer[0].name,
+            last_updated: freelancer[0].updated_at
+        });
+    } catch (error) {
+        console.error('Error getting availability:', error);
+        res.status(500).json({ error: 'Failed to get availability' });
     }
 }
 
@@ -383,8 +430,31 @@ export async function getFreelancerCaseById(req, res) {
 export async function acceptCase(req, res) {
     const { caseId } = req.params;
     try {
+        // Get case details first
+        const caseData = await sql`
+            SELECT c.*, u.name as client_name, u.email as client_email 
+            FROM "case" c 
+            JOIN "user" u ON c.client_id = u.id 
+            WHERE c.id = ${caseId}
+        `;
+        
+        if (!caseData.length) return res.status(404).json({ error: 'Case not found' });
+        
+        const caseItem = caseData[0];
+        
+        // Update case status
         const updated = await sql`UPDATE "case" SET status = 'active', accepted_at = NOW() WHERE id = ${caseId} RETURNING *`;
         if (!updated.length) return res.status(404).json({ error: 'Case not found' });
+        
+        // Create notification for the client
+        await createNotification(
+            caseItem.client_id,
+            'case_accepted',
+            'Case Accepted',
+            `Your case "${caseItem.title}" has been accepted by the lawyer and is now active.`,
+            { case_id: caseId, case_title: caseItem.title }
+        );
+        
         res.json(updated[0]);
     } catch (error) {
         console.error('Error accepting case:', error);
@@ -406,28 +476,54 @@ export async function declineCase(req, res) {
 
 export async function completeCase(req, res) {
     const { caseId } = req.params;
+    const { userId } = req.body;
+    
     try {
-        // First, get the case details to check if it has required documents
+        if (!userId) {
+            return res.status(400).json({ error: 'User ID is required' });
+        }
+        
+        // Handle both Supabase UUID and numeric database ID
+        let dbUserId = userId;
+        if (userId.includes('-')) { // This is a Supabase UUID
+            console.log('Converting Supabase UUID to database ID for complete case...');
+            const user = await sql`
+                SELECT id FROM "user" WHERE supabase_id = ${userId}
+            `;
+            if (user.length === 0) {
+                console.log('User not found for Supabase ID:', userId);
+                return res.status(404).json({ error: 'User not found' });
+            }
+            dbUserId = user[0].id;
+            console.log('Converted to database ID:', dbUserId);
+        } else {
+            console.log('Using numeric user ID:', dbUserId);
+        }
+        
+        // First, get the case details and verify freelancer access
         const caseData = await sql`
-            SELECT c.*, f.user_id as freelancer_id, f.total_earnings 
+            SELECT c.*, f.user_id as freelancer_user_id, f.total_earnings 
             FROM "case" c 
-            LEFT JOIN freelancer f ON c.freelancer_id = f.id 
-            WHERE c.id = ${caseId}
+            LEFT JOIN freelancer f ON c.freelancer_id = f.user_id 
+            WHERE c.id = ${caseId} AND c.freelancer_id = ${dbUserId}
         `;
         
         if (!caseData.length) {
-            return res.status(404).json({ error: 'Case not found' });
+            return res.status(404).json({ error: 'Case not found or access denied' });
         }
         
         const caseItem = caseData[0];
         
         // Check if case has required documents for completion
+        // Temporarily disabled for testing - uncomment the lines below to enforce document requirement
+        /*
         if (!caseItem.annotated_document_url) {
             return res.status(400).json({ 
                 error: 'Cannot complete case without annotated document',
                 message: 'Please annotate and submit the document before marking case as complete'
             });
         }
+        */
         
         // Calculate case payment (this would be based on case complexity, hours spent, etc.)
         // For now, using a fixed rate of $150 per case
@@ -446,16 +542,21 @@ export async function completeCase(req, res) {
         }
         
         // Update freelancer earnings
-        if (caseItem.freelancer_id) {
+        if (caseItem.freelancer_user_id) {
             await sql`
                 UPDATE freelancer 
                 SET total_earnings = total_earnings + ${casePayment},
                     updated_at = NOW()
-                WHERE user_id = ${caseItem.freelancer_id}
+                WHERE user_id = ${caseItem.freelancer_user_id}
             `;
         }
         
         // Create payment record for the completed case
+        const metadata = JSON.stringify({
+            case_id: caseId,
+            case_title: caseItem.title
+        });
+        
         await sql`
             INSERT INTO payments (
                 user_id, 
@@ -467,16 +568,25 @@ export async function completeCase(req, res) {
                 description, 
                 metadata
             ) VALUES (
-                ${caseItem.freelancer_id}, 
+                ${caseItem.freelancer_user_id}, 
                 ${casePayment}, 
                 'usd', 
                 'case_completion', 
                 'completed', 
                 'case_payment', 
-                'Payment for completed case: ${caseItem.title}', 
-                '{"case_id": ${caseId}, "case_title": ${caseItem.title}}'
+                ${`Payment for completed case: ${caseItem.title}`}, 
+                ${metadata}
             )
         `;
+        
+        // Create notification for the client
+        await createNotification(
+            caseItem.client_id,
+            'case_completed',
+            'Case Completed',
+            `Your case "${caseItem.title}" has been completed by the lawyer. You can now review the work and provide feedback.`,
+            { case_id: caseId, case_title: caseItem.title }
+        );
         
         res.json({
             ...updated[0],

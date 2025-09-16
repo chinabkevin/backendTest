@@ -1,5 +1,5 @@
 import express from 'express';
-import { registerFreelancer, getFreelancers, getFreelancerById, deleteFreelancer, updateFreelancerProfile, setFreelancerAvailability, getFreelancerEarnings, getFreelancerRatings, updateFreelancerCredentials, listFreelancerCases, getFreelancerCaseById, acceptCase, declineCase, completeCase, annotateCaseDocument, requestWithdrawal, searchFreelancers, listFreelancerConsultations, getConsultationById, confirmConsultation, completeConsultation, cancelConsultation, updateConsultationNotes } from '../controllers/freelancerController.js';
+import { registerFreelancer, getFreelancers, getFreelancerById, deleteFreelancer, updateFreelancerProfile, setFreelancerAvailability, getFreelancerAvailability, getFreelancerEarnings, getFreelancerRatings, updateFreelancerCredentials, listFreelancerCases, getFreelancerCaseById, acceptCase, declineCase, completeCase, annotateCaseDocument, requestWithdrawal, searchFreelancers, listFreelancerConsultations, getConsultationById, confirmConsultation, completeConsultation, cancelConsultation, updateConsultationNotes } from '../controllers/freelancerController.js';
 import { userExists } from '../middleware/userExists.js';
 
 const router = express.Router();
@@ -11,6 +11,7 @@ router.get('/:userId', getFreelancerById);
 router.delete('/:userId', deleteFreelancer);
 router.put('/update/:userId', updateFreelancerProfile);
 router.post('/availability/:userId', setFreelancerAvailability);
+router.get('/availability/:userId', getFreelancerAvailability);
 router.get('/earnings/:userId', getFreelancerEarnings);
 router.get('/ratings/:userId', getFreelancerRatings);
 router.put('/credentials/:userId', updateFreelancerCredentials);
