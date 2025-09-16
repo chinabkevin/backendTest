@@ -13,6 +13,7 @@ import aiAssistantRoute from './routes/aiAssistantRoute.js';
 import paymentRoute from './routes/paymentRoute.js';
 import paymentHistoryRoute from './routes/paymentHistoryRoute.js';
 import profileRoute from './routes/profileRoute.js';
+import notificationRoute from './routes/notificationRoute.js';
 import job from './config/cron.js';
 import logger from './utils/logger.js';
 
@@ -93,6 +94,7 @@ app.use('/api/v1/ai', aiAssistantRoute);
 app.use('/api/payments', paymentRoute);
 app.use('/api/payment-history', paymentHistoryRoute);
 app.use('/api/profile', profileRoute);
+app.use('/api/notifications', notificationRoute);
 
 
 initDB().then(async () => {

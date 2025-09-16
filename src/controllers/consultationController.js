@@ -1,4 +1,5 @@
 import { sql } from "../config/db.js";
+import { createNotification } from "./notificationController.js";
 
 // Create a new consultation
 export async function createConsultation(req, res) {
@@ -320,6 +321,33 @@ export async function startConsultation(req, res) {
             RETURNING *
         `;
 
+        // Get consultation details for notifications
+        const consultationDetails = await sql`
+            SELECT c.*, f.user_id as freelancer_user_id, f.name as freelancer_name, u.supabase_id as client_supabase_id
+            FROM consultations c
+            LEFT JOIN freelancer f ON c.freelancer_id = f.id
+            LEFT JOIN "user" u ON c.client_id = u.id
+            WHERE c.id = ${consultationId}
+        `;
+
+        if (consultationDetails.length > 0) {
+            const consultation = consultationDetails[0];
+            
+            // Create notification for the client
+            await createNotification(
+                consultation.client_supabase_id,
+                'consultation_started',
+                'Consultation Started',
+                `Your ${consultation.consultation_type} consultation with ${consultation.freelancer_name} has started. ${consultation.consultation_type === 'video' ? 'Join using the meeting link.' : 'You can now begin your consultation.'}`,
+                { 
+                    consultation_id: consultationId,
+                    freelancer_name: consultation.freelancer_name,
+                    consultation_type: consultation.consultation_type,
+                    meeting_link: finalMeetingLink
+                }
+            );
+        }
+
         res.json({
             success: true,
             message: 'Consultation started successfully',
@@ -351,6 +379,47 @@ export async function endConsultation(req, res) {
 
         if (!updateResult.length) {
             return res.status(404).json({ error: 'Consultation not found' });
+        }
+
+        // Get consultation details for notifications
+        const consultationDetails = await sql`
+            SELECT c.*, f.user_id as freelancer_user_id, f.name as freelancer_name, u.supabase_id as client_supabase_id
+            FROM consultations c
+            LEFT JOIN freelancer f ON c.freelancer_id = f.id
+            LEFT JOIN "user" u ON c.client_id = u.id
+            WHERE c.id = ${consultationId}
+        `;
+
+        if (consultationDetails.length > 0) {
+            const consultation = consultationDetails[0];
+            
+            // Create notification for the client
+            await createNotification(
+                consultation.client_supabase_id,
+                'consultation_completed',
+                'Consultation Completed',
+                `Your ${consultation.consultation_type} consultation with ${consultation.freelancer_name} has been completed. You can now provide feedback and rate your experience.`,
+                { 
+                    consultation_id: consultationId,
+                    freelancer_name: consultation.freelancer_name,
+                    consultation_type: consultation.consultation_type,
+                    outcome: outcome
+                }
+            );
+
+            // Create notification for the freelancer
+            await createNotification(
+                consultation.freelancer_user_id,
+                'consultation_ended',
+                'Consultation Ended',
+                `Your ${consultation.consultation_type} consultation with the client has been completed. The client can now provide feedback.`,
+                { 
+                    consultation_id: consultationId,
+                    client_id: consultation.client_id,
+                    consultation_type: consultation.consultation_type,
+                    outcome: outcome
+                }
+            );
         }
 
         res.json({
@@ -590,6 +659,36 @@ export const bookConsultation = async (req, res) => {
         RETURNING id, meeting_link, status, consultation_type
       `;
       
+      // Create notification for the freelancer
+      await createNotification(
+        lawyerId, // freelancer's user_id
+        'consultation_booked',
+        'New Consultation Booked',
+        `A client has booked a ${consultation.consultation_type} consultation with you for ${new Date(datetime).toLocaleDateString()} at ${new Date(datetime).toLocaleTimeString()}.`,
+        { 
+          consultation_id: consultation.id, 
+          client_id: user[0].id,
+          consultation_type: consultation.consultation_type,
+          scheduled_at: datetime,
+          meeting_link: consultation.meeting_link
+        }
+      );
+
+      // Create notification for the client
+      await createNotification(
+        userId, // client's supabase_id
+        'consultation_scheduled',
+        'Consultation Scheduled',
+        `Your ${consultation.consultation_type} consultation with ${freelancer[0].name} has been scheduled for ${new Date(datetime).toLocaleDateString()} at ${new Date(datetime).toLocaleTimeString()}.`,
+        { 
+          consultation_id: consultation.id, 
+          freelancer_id: freelancer[0].id,
+          consultation_type: consultation.consultation_type,
+          scheduled_at: datetime,
+          meeting_link: consultation.meeting_link
+        }
+      );
+
       // Create response with appropriate instructions based on method
       let instructions = '';
       if (consultation.consultation_type === 'audio') {
