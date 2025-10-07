@@ -1,6 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import { initDB } from './config/db.js';
 import { runMigrations } from './config/migrations/run_migrations.js';
 import rateLimiter from './middleware/rateLimiter.js';
@@ -14,6 +15,7 @@ import paymentRoute from './routes/paymentRoute.js';
 import paymentHistoryRoute from './routes/paymentHistoryRoute.js';
 import profileRoute from './routes/profileRoute.js';
 import notificationRoute from './routes/notificationRoute.js';
+import authRoute from './routes/authRoute.js';
 import job from './config/cron.js';
 import logger from './utils/logger.js';
 
@@ -61,6 +63,7 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+app.use(cookieParser());
 
 app.use(rateLimiter);
 
@@ -84,6 +87,9 @@ const PORT = process.env.PORT || 5001;
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
+
+// Authentication routes (must be before other routes)
+app.use('/', authRoute);
 
 app.use('/api/freelancers', freelancerRoute);
 app.use('/api/cases', caseRoute);
