@@ -14,7 +14,7 @@ export async function initDB() {
       // Create user table FIRST
       await sql`CREATE TABLE IF NOT EXISTS "user" (
         id SERIAL PRIMARY KEY,
-        supabase_id UUID UNIQUE NOT NULL,
+        supabase_id VARCHAR(255) UNIQUE NOT NULL,
         email VARCHAR(255) NOT NULL UNIQUE,
         name VARCHAR(100),
         role VARCHAR(20) DEFAULT 'user',

@@ -10,10 +10,6 @@ const rateLimiter = rateLimit({
   },
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  // Use IP address for rate limiting
-  keyGenerator: (req) => {
-    return req.ip || req.connection.remoteAddress || 'unknown';
-  },
   // Skip rate limiting for successful requests (optional)
   skipSuccessfulRequests: false,
   // Skip rate limiting for failed requests (optional)
