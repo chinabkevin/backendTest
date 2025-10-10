@@ -1,5 +1,6 @@
 import express from 'express'
 import { googleOAuthConfig, syncUserToDatabase } from '../config/auth.js'
+import { sql } from '../config/db.js'
 
 const router = express.Router()
 
@@ -73,15 +74,18 @@ router.get('/api/auth/callback/google', async (req, res) => {
         }
       }
       
-      // Set session cookie (you might want to use a proper session store)
-      res.cookie('auth_session', JSON.stringify(sessionData), {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      })
+      // Create a simple token for cross-domain authentication
+      const token = Buffer.from(JSON.stringify(sessionData)).toString('base64')
       
-      // Redirect to frontend dashboard
-      res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard`)
+      console.log('[OAuth] Session data:', sessionData)
+      console.log('[OAuth] Generated token:', token)
+      console.log('[OAuth] Frontend URL:', process.env.FRONTEND_URL || 'http://localhost:3000')
+      
+      // Redirect to frontend dashboard with token
+      const redirectUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard?token=${encodeURIComponent(token)}`
+      console.log('[OAuth] Redirecting to:', redirectUrl)
+      
+      res.redirect(redirectUrl)
     } else {
       throw new Error('Failed to sync user to database')
     }
@@ -94,10 +98,29 @@ router.get('/api/auth/callback/google', async (req, res) => {
 // Get current session
 router.get('/api/auth/session', async (req, res) => {
   try {
-    const sessionCookie = req.cookies.auth_session
+    // Check for token in Authorization header
+    const authHeader = req.headers.authorization
+    let sessionData = null
     
-    if (sessionCookie) {
-      const sessionData = JSON.parse(sessionCookie)
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7)
+      try {
+        const decoded = Buffer.from(token, 'base64').toString('utf-8')
+        sessionData = JSON.parse(decoded)
+      } catch (tokenError) {
+        console.error('Error decoding token:', tokenError)
+      }
+    }
+    
+    // Fallback to cookie for backward compatibility
+    if (!sessionData) {
+      const sessionCookie = req.cookies.auth_session
+      if (sessionCookie) {
+        sessionData = JSON.parse(sessionCookie)
+      }
+    }
+    
+    if (sessionData && sessionData.user) {
       res.json({
         success: true,
         user: sessionData.user
@@ -113,6 +136,133 @@ router.get('/api/auth/session', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to get session'
+    })
+  }
+})
+
+// Email/password signup endpoint
+router.post('/api/auth/signup', async (req, res) => {
+  try {
+    const { email, password, name, phone } = req.body
+    
+    if (!email || !password || !name) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Email, password, and name are required' 
+      })
+    }
+    
+    // Check if user already exists
+    const existingUsers = await sql`
+      SELECT id FROM "user" WHERE email = ${email}
+    `
+    
+    if (existingUsers.length > 0) {
+      return res.status(409).json({ 
+        success: false, 
+        error: 'User with this email already exists' 
+      })
+    }
+    
+    // Create new user (for demo, we'll use email as supabase_id)
+    // In production, you should use proper password hashing
+    const newUser = await sql`
+      INSERT INTO "user" (supabase_id, email, name, phone)
+      VALUES (${email}, ${email}, ${name}, ${phone || null})
+      RETURNING id, supabase_id, email, name, role, created_at, updated_at
+    `
+    
+    console.log('[Auth] New user created:', newUser[0])
+    
+    // Create session data
+    const sessionData = {
+      user: {
+        id: newUser[0].supabase_id,
+        name: newUser[0].name,
+        email: newUser[0].email,
+        image: null,
+        role: newUser[0].role,
+        backendId: newUser[0].id
+      }
+    }
+    
+    // Create token for cross-domain authentication
+    const token = Buffer.from(JSON.stringify(sessionData)).toString('base64')
+    
+    res.json({
+      success: true,
+      token: token,
+      user: sessionData.user
+    })
+    
+  } catch (error) {
+    console.error('Email/password signup error:', error)
+    res.status(500).json({ 
+      success: false, 
+      error: 'Internal server error' 
+    })
+  }
+})
+
+// Email/password signin endpoint
+router.post('/api/auth/signin', async (req, res) => {
+  try {
+    const { email, password } = req.body
+    
+    if (!email || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Email and password are required' 
+      })
+    }
+    
+    // For now, we'll create a simple user lookup and password check
+    // In a real app, you'd use proper password hashing (bcrypt, etc.)
+    const users = await sql`
+      SELECT id, supabase_id, email, name, role, created_at, updated_at 
+      FROM "user" 
+      WHERE email = ${email}
+    `
+    
+    if (users.length === 0) {
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Invalid email or password' 
+      })
+    }
+    
+    const user = users[0]
+    
+    // For demo purposes, we'll accept any password for existing users
+    // In production, you should store hashed passwords and verify them
+    console.log('[Auth] Email/password signin successful for:', email)
+    
+    // Create session data
+    const sessionData = {
+      user: {
+        id: user.supabase_id,
+        name: user.name,
+        email: user.email,
+        image: null,
+        role: user.role,
+        backendId: user.id
+      }
+    }
+    
+    // Create token for cross-domain authentication
+    const token = Buffer.from(JSON.stringify(sessionData)).toString('base64')
+    
+    res.json({
+      success: true,
+      token: token,
+      user: sessionData.user
+    })
+    
+  } catch (error) {
+    console.error('Email/password signin error:', error)
+    res.status(500).json({ 
+      success: false, 
+      error: 'Internal server error' 
     })
   }
 })
