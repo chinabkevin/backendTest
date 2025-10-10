@@ -4,7 +4,7 @@ import { sql } from './db.js'
 export const googleOAuthConfig = {
   clientId: process.env.GOOGLE_CLIENT_ID,
   clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-  redirectUri: `${process.env.NEXTAUTH_URL}/api/auth/callback/google`,
+  redirectUri: `${process.env.BACKEND_URL || 'http://localhost:5001'}/api/auth/callback/google`,
   scope: 'openid email profile',
   authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
   tokenUrl: 'https://oauth2.googleapis.com/token',
