@@ -108,11 +108,13 @@ app.use('/api/contact', contactRoute);
 initDB().then(async () => {
     // Run database migrations
     try {
+        console.log('Database initialization complete');
+        
         console.log('Running database migrations...');
         const migrationResult = await runMigrations();
         console.log('Migrations complete:', migrationResult);
     } catch (error) {
-        console.error('Error running migrations:', error);
+        console.error('Error initializing database or running migrations:', error);
         // Continue starting server despite migration errors
     }
     

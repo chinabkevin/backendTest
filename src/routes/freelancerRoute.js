@@ -4,7 +4,7 @@ import { userExists } from '../middleware/userExists.js';
 
 const router = express.Router();
 
-router.post('/register', userExists, registerFreelancer );
+router.post('/register', registerFreelancer );
 router.get('/', getFreelancers);
 router.get('/search', searchFreelancers);
 router.get('/:userId', getFreelancerById);
