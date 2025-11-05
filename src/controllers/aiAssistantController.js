@@ -170,9 +170,16 @@ export const getUserSessions = async (req, res) => {
       return res.status(400).json({ error: 'User ID is required' });
     }
     
-    // Get user ID from supabase_id
+    // Use userId directly as backend user ID (no longer using Supabase)
+    const backendUserId = parseInt(userId);
+    
+    if (isNaN(backendUserId)) {
+      return res.status(400).json({ error: 'Invalid user ID format' });
+    }
+    
+    // Verify user exists
     const user = await sql`
-      SELECT id FROM "user" WHERE supabase_id = ${userId}
+      SELECT id FROM "user" WHERE id = ${backendUserId}
     `;
     
     if (user.length === 0) {
@@ -191,7 +198,7 @@ export const getUserSessions = async (req, res) => {
         MAX(cm.created_at) as last_message_at
       FROM chat_sessions cs
       LEFT JOIN chat_messages cm ON cs.id = cm.session_id
-      WHERE cs.user_id = ${user[0].id} AND cs.status != 'deleted'
+      WHERE cs.user_id = ${backendUserId} AND cs.status != 'deleted'
       GROUP BY cs.id, cs.title, cs.category, cs.status, cs.created_at, cs.updated_at
       ORDER BY cs.updated_at DESC
     `;
@@ -216,9 +223,16 @@ export const getSession = async (req, res) => {
       return res.status(400).json({ error: 'User ID is required' });
     }
     
-    // Get user ID from supabase_id
+    // Use userId directly as backend user ID (no longer using Supabase)
+    const backendUserId = parseInt(userId);
+    
+    if (isNaN(backendUserId)) {
+      return res.status(400).json({ error: 'Invalid user ID format' });
+    }
+    
+    // Verify user exists
     const user = await sql`
-      SELECT id FROM "user" WHERE supabase_id = ${userId}
+      SELECT id FROM "user" WHERE id = ${backendUserId}
     `;
     
     if (user.length === 0) {
@@ -229,7 +243,7 @@ export const getSession = async (req, res) => {
     const sessions = await sql`
       SELECT id, title, category, status, created_at, updated_at
       FROM chat_sessions 
-      WHERE id = ${id} AND user_id = ${user[0].id} AND status != 'deleted'
+      WHERE id = ${id} AND user_id = ${backendUserId} AND status != 'deleted'
     `;
     
     if (sessions.length === 0) {
@@ -265,9 +279,16 @@ export const deleteSession = async (req, res) => {
       return res.status(400).json({ error: 'User ID is required' });
     }
     
-    // Get user ID from supabase_id
+    // Use userId directly as backend user ID (no longer using Supabase)
+    const backendUserId = parseInt(userId);
+    
+    if (isNaN(backendUserId)) {
+      return res.status(400).json({ error: 'Invalid user ID format' });
+    }
+    
+    // Verify user exists
     const user = await sql`
-      SELECT id FROM "user" WHERE supabase_id = ${userId}
+      SELECT id FROM "user" WHERE id = ${backendUserId}
     `;
     
     if (user.length === 0) {
@@ -277,7 +298,7 @@ export const deleteSession = async (req, res) => {
     const result = await sql`
       UPDATE chat_sessions 
       SET status = 'deleted', updated_at = NOW()
-      WHERE id = ${id} AND user_id = ${user[0].id}
+      WHERE id = ${id} AND user_id = ${backendUserId}
       RETURNING id
     `;
     

@@ -3,34 +3,25 @@ import { createNotification } from "./notificationController.js";
 
 export async function registerFreelancer(req, res){
     const { name, email, phone, experience, expertiseAreas, idCardUrl, barCertificateUrl, additionalDocuments, userId } = req.body;
-    console.log('🔍 registerFreelancer called with:', { name, email, phone, experience, expertiseAreas, userId });
     
     try {
       if (!name || !email || !phone || !experience || !expertiseAreas || !userId) {
-        console.log('❌ Missing required fields');
         return res.status(400).json({ error: 'Missing required fields' });
       }
       
-      console.log('🔍 Attempting to insert freelancer into database...');
       const freelancer = await sql`INSERT INTO freelancer (name, email, phone, experience, expertise_areas, id_card_url, bar_certificate_url, additional_documents, user_id) VALUES (${name}, ${email}, ${phone}, ${experience}, ${expertiseAreas}, ${idCardUrl}, ${barCertificateUrl}, ${additionalDocuments}, ${userId}) RETURNING *`;
-      console.log('✅ Freelancer inserted:', freelancer);
       
       if (!freelancer || freelancer.length === 0) {
-        console.log('❌ No freelancer returned from insert');
         return res.status(400).json({ error: 'Failed to register freelancer' });
       }
       
       // Set user role to freelancer
-      console.log('🔍 Updating user role to freelancer...');
       await sql`UPDATE "user" SET role = 'freelancer' WHERE id = ${userId}`;
-      console.log('✅ User role updated to freelancer');
       
-      console.log('✅ Freelancer registered successfully');
+      console.log('Freelancer registered successfully');
       res.status(201).json(freelancer[0]);
     } catch (error) {
-      console.error('❌ Error registering freelancer:', error);
-      console.error('❌ Error details:', error.message);
-      console.error('❌ Error code:', error.code);
+      console.error('Error registering freelancer:', error);
       res.status(500).json({ error: 'Failed to register freelancer' });
     }
 }

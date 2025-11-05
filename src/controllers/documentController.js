@@ -304,18 +304,23 @@ export async function getUserDocuments(req, res) {
 
         console.log('Fetching documents for userId:', userId);
 
-        // First, check if the user exists and get their numeric ID
+        // Use userId directly as backend user ID (no longer using Supabase)
+        const backendUserId = parseInt(userId);
+        
+        if (isNaN(backendUserId)) {
+            return res.status(400).json({ error: 'Invalid user ID format' });
+        }
+
+        // Verify user exists
         const userCheck = await sql`
-            SELECT id, supabase_id FROM "user" 
-            WHERE supabase_id = ${userId}
+            SELECT id FROM "user" 
+            WHERE id = ${backendUserId}
         `;
 
         if (!userCheck.length) {
             return res.status(404).json({ error: 'User not found' });
         }
-
-        const numericUserId = userCheck[0].id;
-        console.log('Found user with numeric ID:', numericUserId);
+        console.log('Found user with numeric ID:', backendUserId);
 
         // Get all cases for the user (as client)
         const userCases = await sql`
@@ -328,7 +333,7 @@ export async function getUserDocuments(req, res) {
                 c.created_at,
                 c.updated_at
             FROM "case" c
-            WHERE c.client_id = ${numericUserId}
+            WHERE c.client_id = ${backendUserId}
             ORDER BY c.created_at DESC
         `;
 
@@ -346,7 +351,7 @@ export async function getUserDocuments(req, res) {
                 created_at,
                 updated_at
             FROM ai_documents
-            WHERE user_id = ${numericUserId}
+            WHERE user_id = ${backendUserId}
             ORDER BY created_at DESC
         `;
 
@@ -360,7 +365,7 @@ export async function getUserDocuments(req, res) {
             if (caseItem.case_summary_url) {
                 documents.push({
                     id: `case-${caseItem.id}-summary`,
-                    user_id: numericUserId,
+                    user_id: backendUserId,
                     template_id: 'case-summary',
                     template_name: caseItem.title || 'Case Summary',
                     form_data: {},
@@ -378,7 +383,7 @@ export async function getUserDocuments(req, res) {
             if (caseItem.annotated_document_url) {
                 documents.push({
                     id: `case-${caseItem.id}-annotated`,
-                    user_id: numericUserId,
+                    user_id: backendUserId,
                     template_id: 'case-annotated',
                     template_name: `${caseItem.title || 'Case'} - Annotated`,
                     form_data: {},
@@ -397,7 +402,7 @@ export async function getUserDocuments(req, res) {
                 caseItem.auto_generated_docs.forEach((doc, index) => {
                     documents.push({
                         id: `case-${caseItem.id}-auto-${index}`,
-                        user_id: numericUserId,
+                        user_id: backendUserId,
                         template_id: 'auto-generated',
                         template_name: doc.name || `${caseItem.title || 'Case'} - Auto Generated ${index + 1}`,
                         form_data: {},

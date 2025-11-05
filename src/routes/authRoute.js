@@ -105,10 +105,42 @@ router.get('/api/auth/session', async (req, res) => {
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7)
       try {
+        // Validate that the token is a valid base64 string
+        if (!/^[A-Za-z0-9+/]*={0,2}$/.test(token)) {
+          console.log('Invalid base64 token format')
+          return res.json({
+            success: false,
+            user: null
+          })
+        }
+        
         const decoded = Buffer.from(token, 'base64').toString('utf-8')
+        
+        // Validate that the decoded string is valid JSON
+        if (!decoded || decoded.trim() === '') {
+          console.log('Empty or invalid decoded token')
+          return res.json({
+            success: false,
+            user: null
+          })
+        }
+        
         sessionData = JSON.parse(decoded)
+        
+        // Validate that sessionData has the expected structure
+        if (!sessionData || typeof sessionData !== 'object' || !sessionData.user) {
+          console.log('Invalid session data structure')
+          return res.json({
+            success: false,
+            user: null
+          })
+        }
       } catch (tokenError) {
-        console.error('Error decoding token:', tokenError)
+        console.error('Error decoding token:', tokenError.message)
+        return res.json({
+          success: false,
+          user: null
+        })
       }
     }
     
@@ -116,7 +148,15 @@ router.get('/api/auth/session', async (req, res) => {
     if (!sessionData) {
       const sessionCookie = req.cookies.auth_session
       if (sessionCookie) {
-        sessionData = JSON.parse(sessionCookie)
+        try {
+          sessionData = JSON.parse(sessionCookie)
+        } catch (cookieError) {
+          console.error('Error parsing session cookie:', cookieError.message)
+          return res.json({
+            success: false,
+            user: null
+          })
+        }
       }
     }
     
@@ -145,10 +185,28 @@ router.post('/api/auth/signup', async (req, res) => {
   try {
     const { email, password, name, phone } = req.body
     
+    // Validate required fields
     if (!email || !password || !name) {
       return res.status(400).json({ 
         success: false, 
         error: 'Email, password, and name are required' 
+      })
+    }
+    
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Please provide a valid email address' 
+      })
+    }
+    
+    // Validate password strength
+    if (password.length < 6) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Password must be at least 6 characters long' 
       })
     }
     
@@ -171,6 +229,10 @@ router.post('/api/auth/signup', async (req, res) => {
       VALUES (${email}, ${email}, ${name}, ${phone || null})
       RETURNING id, supabase_id, email, name, role, created_at, updated_at
     `
+    
+    if (!newUser || newUser.length === 0) {
+      throw new Error('Failed to create user in database')
+    }
     
     console.log('[Auth] New user created:', newUser[0])
     
@@ -197,6 +259,15 @@ router.post('/api/auth/signup', async (req, res) => {
     
   } catch (error) {
     console.error('Email/password signup error:', error)
+    
+    // Handle specific database errors
+    if (error.code === '23505') { // Unique constraint violation
+      return res.status(409).json({ 
+        success: false, 
+        error: 'User with this email already exists' 
+      })
+    }
+    
     res.status(500).json({ 
       success: false, 
       error: 'Internal server error' 
@@ -209,10 +280,20 @@ router.post('/api/auth/signin', async (req, res) => {
   try {
     const { email, password } = req.body
     
+    // Validate required fields
     if (!email || !password) {
       return res.status(400).json({ 
         success: false, 
         error: 'Email and password are required' 
+      })
+    }
+    
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Please provide a valid email address' 
       })
     }
     
