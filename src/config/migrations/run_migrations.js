@@ -11,6 +11,10 @@ import { fixConsultationFreelancerFK } from './fix_consultation_freelancer_fk.js
 import { addPaymentStatusToConsultations } from './add_payment_status_to_consultations.js';
 import { addUniqueConstraintToPayments } from './add_unique_constraint_to_payments.js';
 import { addNotificationsTable } from './add_notifications_table.js';
+import { addBarristerTable } from './add_barrister_table.js';
+import { addBarristerOnboardingTables } from './add_barrister_onboarding_tables.js';
+import { addBarristerProfessionalInfoTables } from './add_barrister_professional_info_tables.js';
+import { addBarristerDashboardTables } from './add_barrister_dashboard_tables.js';
 
 /**
  * Run all migrations in sequence
@@ -70,6 +74,22 @@ async function runMigrations() {
     // Run notifications table migration
     const notificationsResult = await addNotificationsTable();
     console.log('Notifications table migration result:', notificationsResult);
+    
+    // Run barrister table migration
+    const barristerResult = await addBarristerTable();
+    console.log('Barrister table migration result:', barristerResult);
+    
+    // Run barrister onboarding tables migration
+    const barristerOnboardingResult = await addBarristerOnboardingTables();
+    console.log('Barrister onboarding tables migration result:', barristerOnboardingResult);
+    
+    // Run barrister professional info tables migration
+    const barristerProfessionalInfoResult = await addBarristerProfessionalInfoTables();
+    console.log('Barrister professional info tables migration result:', barristerProfessionalInfoResult);
+    
+    // Run barrister dashboard tables migration
+    const barristerDashboardResult = await addBarristerDashboardTables();
+    console.log('Barrister dashboard tables migration result:', barristerDashboardResult);
     
     // Add future migrations here
     
