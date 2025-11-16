@@ -1,64 +1,75 @@
 import { sql } from "../config/db.js";
 
 export async function syncUser(req, res) {
-    const { supabaseId, email, name, phone, avatar_url } = req.body;
-    console.log('[syncUser] Incoming:', { supabaseId, email, name, phone, avatar_url });
+    const { email, name, phone } = req.body;
+    console.log('[syncUser] Incoming request:', { email, name, phone });
     
-    if (!supabaseId || !email) {
-        console.log('[syncUser] Missing supabaseId or email');
-        return res.status(400).json({ error: 'Missing supabaseId or email' });
+    if (!email) {
+        console.log('[syncUser] Missing email');
+        return res.status(400).json({ error: 'Missing email' });
+    }
+    
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        console.log('[syncUser] Invalid email format:', email);
+        return res.status(400).json({ error: 'Invalid email format' });
     }
     
     try {
-        // First, check if user exists by supabase_id
-        let user = await sql`
+        const existingUsers = await sql`
             SELECT id, supabase_id, email, name, role, created_at, updated_at 
             FROM "user" 
-            WHERE supabase_id = ${supabaseId}`;
+            WHERE LOWER(email) = LOWER(${email})
+        `;
         
-        if (user.length > 0) {
-            // User exists, update their information
-            user = await sql`
-                UPDATE "user" 
-                SET email = ${email}, 
-                    name = COALESCE(${name}, name), 
+        let result;
+        if (existingUsers.length > 0) {
+            const existing = existingUsers[0];
+            result = await sql`
+                UPDATE "user"
+                SET 
+                    name = COALESCE(${name}, name),
+                    phone = COALESCE(${phone}, phone),
                     updated_at = NOW()
-                WHERE supabase_id = ${supabaseId}
-                RETURNING id, supabase_id, email, name, role, created_at, updated_at`;
-            console.log('[syncUser] Update result:', user[0]);
+                WHERE id = ${existing.id}
+                RETURNING id, supabase_id, email, name, role, created_at, updated_at
+            `;
+            console.log('[syncUser] Updated user by email:', result[0]);
         } else {
-            // User doesn't exist, create new user
-            user = await sql`
-                INSERT INTO "user" (supabase_id, email, name)
-                VALUES (${supabaseId}, ${email}, ${name})
-                RETURNING id, supabase_id, email, name, role, created_at, updated_at`;
-            console.log('[syncUser] Insert result:', user[0]);
+            result = await sql`
+                INSERT INTO "user" (email, name, phone)
+                VALUES (${email}, ${name || null}, ${phone || null})
+                RETURNING id, supabase_id, email, name, role, created_at, updated_at
+            `;
+            console.log('[syncUser] Created new user:', result[0]);
         }
         
-        console.log('[syncUser] User synced successfully:', user[0]);
-        res.status(200).json(user[0]);
+        if (!result.length) {
+            console.error('[syncUser] No user returned after sync operation');
+            return res.status(500).json({ error: 'Failed to sync user' });
+        }
+        
+        const syncedUser = result[0];
+        console.log('[syncUser] ✅ User synced successfully:', {
+            id: syncedUser.id,
+            email: syncedUser.email,
+            role: syncedUser.role
+        });
+        res.status(200).json(syncedUser);
         
     } catch (error) {
         console.error('[syncUser] Error syncing user:', error);
-        
-        // Handle specific database errors
-        if (error.code === '23505') {
-            if (error.detail && error.detail.includes('email')) {
-                return res.status(409).json({ 
-                    error: 'A user with this email already exists.',
-                    code: 'EMAIL_EXISTS'
-                });
-            } else if (error.detail && error.detail.includes('supabase_id')) {
-                return res.status(409).json({ 
-                    error: 'A user with this Supabase ID already exists.',
-                    code: 'SUPABASE_ID_EXISTS'
-                });
-            }
+        if (error.code === '23505' && error.detail?.includes('email')) {
+            return res.status(409).json({ 
+                error: 'A user with this email already exists.',
+                code: 'EMAIL_EXISTS'
+            });
         }
         
         res.status(500).json({ 
             error: 'Failed to sync user to database',
-            code: 'SYNC_FAILED'
+            code: 'SYNC_FAILED',
+            details: error.message
         });
     }
 }

@@ -17,6 +17,11 @@ import profileRoute from './routes/profileRoute.js';
 import notificationRoute from './routes/notificationRoute.js';
 import contactRoute from './routes/contactRoute.js';
 import authRoute from './routes/authRoute.js';
+import barristerRoute from './routes/barristerRoute.js';
+import clientCareRoute from './routes/clientCareRoute.js';
+import messageRoute from './routes/messageRoute.js';
+import billingRoute from './routes/billingRoute.js';
+import resourceRoute from './routes/resourceRoute.js';
 import job from './config/cron.js';
 import logger from './utils/logger.js';
 
@@ -103,6 +108,12 @@ app.use('/api/payment-history', paymentHistoryRoute);
 app.use('/api/profile', profileRoute);
 app.use('/api/notifications', notificationRoute);
 app.use('/api/contact', contactRoute);
+app.use('/api/barrister', barristerRoute);
+app.use('/api/barristers', barristerRoute); // Legacy support
+app.use('/api/client-care', clientCareRoute);
+app.use('/api/messages', messageRoute);
+app.use('/api/billing', billingRoute);
+app.use('/api/resources', resourceRoute);
 
 
 initDB().then(async () => {

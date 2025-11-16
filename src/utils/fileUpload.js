@@ -16,7 +16,25 @@ const cloudinaryConfig = {
 
 // Check if Cloudinary is properly configured
 const isCloudinaryConfigured = () => {
-  const hasConfig = cloudinaryConfig.cloud_name && cloudinaryConfig.api_key && cloudinaryConfig.api_secret;
+  // Check if all three required values exist and are not placeholder values
+  const hasCloudName = cloudinaryConfig.cloud_name && 
+                       cloudinaryConfig.cloud_name !== 'your-cloud-name-here' &&
+                       cloudinaryConfig.cloud_name.trim().length > 0;
+  const hasApiKey = cloudinaryConfig.api_key && cloudinaryConfig.api_key.trim().length > 0;
+  const hasApiSecret = cloudinaryConfig.api_secret && cloudinaryConfig.api_secret.trim().length > 0;
+  
+  const hasConfig = hasCloudName && hasApiKey && hasApiSecret;
+  
+  if (!hasConfig) {
+    const missing = [];
+    if (!hasCloudName) missing.push('CLOUDINARY_CLOUD_NAME');
+    if (!hasApiKey) missing.push('CLOUDINARY_API_KEY');
+    if (!hasApiSecret) missing.push('CLOUDINARY_API_SECRET');
+    console.warn('⚠️  Cloudinary configuration incomplete. Missing:', missing.join(', '));
+    if (cloudinaryConfig.cloud_name === 'your-cloud-name-here') {
+      console.warn('   Note: CLOUDINARY_CLOUD_NAME is set to placeholder value. Please update with your actual Cloudinary cloud name.');
+    }
+  }
   return hasConfig;
 };
 
@@ -63,8 +81,31 @@ export const upload = multer({
   }
 });
 
-// Upload case document to Cloudinary
-export const uploadCaseDocument = async (file, caseId, documentType = 'summary') => {
+// Multer configuration for barrister documents (5MB limit, PDF and images only)
+export const uploadBarrister = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit for barrister documents
+  },
+  fileFilter: (req, file, cb) => {
+    // Allow only PDF and image files for barrister documents
+    const allowedTypes = [
+      'application/pdf',
+      'image/jpeg',
+      'image/jpg',
+      'image/png'
+    ];
+    
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only PDF, JPG, or PNG files are allowed (max 5MB).'), false);
+    }
+  }
+});
+
+// Generic upload function to Cloudinary
+export const uploadToCloudinary = async (file, folder, documentType = 'document') => {
   try {
     if (!isCloudinaryConfigured()) {
       return {
@@ -74,15 +115,15 @@ export const uploadCaseDocument = async (file, caseId, documentType = 'summary')
     }
 
     const uploadOptions = {
-      folder: `advoqat-cases/${caseId}`,
+      folder: `advoqat/${folder}`,
       resource_type: 'auto',
       public_id: `${documentType}-${Date.now()}`,
       overwrite: false
     };
 
-    console.log('📤 Uploading case document to Cloudinary:', {
+    console.log('📤 Uploading document to Cloudinary:', {
       filename: file.originalname,
-      caseId,
+      folder,
       documentType,
       options: uploadOptions
     });
@@ -92,7 +133,7 @@ export const uploadCaseDocument = async (file, caseId, documentType = 'summary')
     // Clean up the temporary file
     fs.unlinkSync(file.path);
     
-    console.log('✅ Case document upload successful:', {
+    console.log('✅ Document upload successful:', {
       url: result.secure_url,
       public_id: result.public_id,
       format: result.format,
@@ -120,6 +161,11 @@ export const uploadCaseDocument = async (file, caseId, documentType = 'summary')
       error: error.message || 'Failed to upload document'
     };
   }
+};
+
+// Upload case document to Cloudinary
+export const uploadCaseDocument = async (file, caseId, documentType = 'summary') => {
+  return uploadToCloudinary(file, `cases/${caseId}`, documentType);
 };
 
 // Delete case document from Cloudinary
