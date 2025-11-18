@@ -1,0 +1,23 @@
+A lawyer should be able to search for a barrister and a barrister should be able to search for a lawyer.
+a user should be able to search for a barrister .
+
+
+Basic
+    Profile listing
+    Limited visibility
+    Trial access
+
+
+Professional
+    Full visibility
+    Messaging with clients
+    Booking management
+    Client consultations
+    £49.99per month
+Premium
+    Everything in Professional
+    Boosted visibility
+    Analytics dashboard
+    Compliance reminders
+    Priority support
+    £79.99per month

@@ -172,6 +172,28 @@ export async function registerBarrister(req, res) {
           VALUES (${dbUserId}, ${JSON.stringify(eligibilityAnswers)}, ${eligibilityPassed})
         `;
       }
+
+      // Ensure barrister record exists for existing user
+      const barristerExists = await sql`SELECT id FROM barrister WHERE user_id = ${dbUserId}`;
+      if (barristerExists.length === 0) {
+        await sql`
+          INSERT INTO barrister (user_id, name, email, phone, status, stage)
+          VALUES (${dbUserId}, ${name}, ${email}, ${phone || null}, 'PENDING_VERIFICATION', 'documents_upload')
+        `;
+      } else {
+        // Update existing barrister record
+        await sql`
+          UPDATE barrister 
+          SET 
+            name = ${name},
+            email = ${email},
+            phone = ${phone || null},
+            status = 'PENDING_VERIFICATION',
+            stage = 'documents_upload',
+            updated_at = NOW()
+          WHERE user_id = ${dbUserId}
+        `;
+      }
     } else {
       // Create new user
       user = await sql`
@@ -185,6 +207,15 @@ export async function registerBarrister(req, res) {
         INSERT INTO barrister_eligibility (user_id, answers, eligibility_passed)
         VALUES (${user[0].id}, ${JSON.stringify(eligibilityAnswers)}, ${eligibilityPassed})
       `;
+
+      // Create barrister record
+      const barristerExists = await sql`SELECT id FROM barrister WHERE user_id = ${user[0].id}`;
+      if (barristerExists.length === 0) {
+        await sql`
+          INSERT INTO barrister (user_id, name, email, phone, status, stage)
+          VALUES (${user[0].id}, ${name}, ${email}, ${phone || null}, 'PENDING_VERIFICATION', 'documents_upload')
+        `;
+      }
     }
 
     logger.log('Barrister account registered with eligibility:', {
@@ -1198,6 +1229,143 @@ export async function submitLegalDeclarations(req, res) {
     res.status(500).json({
       success: false,
       error: 'Failed to submit legal declarations'
+    });
+  }
+}
+
+export async function searchBarristers(req, res) {
+  try {
+    const {
+      q,
+      term,
+      practiceArea,
+      practiceAreas,
+      pricingModel,
+      publicAccessOnly,
+      maxRate,
+      limit = 20,
+      offset = 0
+    } = req.query;
+
+    const searchTerm = (q || term || '').trim();
+    const areaParam = practiceAreas || practiceArea || '';
+    const selectedAreas = areaParam
+      ? areaParam.split(',').map((area) => area.trim()).filter(Boolean)
+      : [];
+
+    const allowedPricingModels = new Set(['hourly', 'fixed_fee', 'package', 'mixed']);
+    const pricingFilter = pricingModel && allowedPricingModels.has(pricingModel)
+      ? pricingModel
+      : null;
+
+    const limitNumber = Math.min(parseInt(limit, 10) || 20, 50);
+    const offsetNumber = Math.max(parseInt(offset, 10) || 0, 0);
+
+    let maxRateValue = maxRate ? parseFloat(maxRate) : null;
+    if (Number.isNaN(maxRateValue)) {
+      maxRateValue = null;
+    }
+
+    // First, try to sync any missing barristers (users with role='barrister' but no barrister record)
+    // This ensures we don't miss any barristers
+    try {
+      const usersWithoutBarristerRecord = await sql`
+        SELECT u.id, u.email, u.name, u.phone, u.profile_status, u.onboarding_stage
+        FROM "user" u
+        LEFT JOIN barrister b ON u.id = b.user_id
+        WHERE u.role = 'barrister' AND b.id IS NULL
+        LIMIT 10
+      `;
+
+      for (const user of usersWithoutBarristerRecord) {
+        try {
+          let status = 'PENDING_VERIFICATION';
+          if (user.profile_status === 'APPROVED') {
+            status = 'APPROVED';
+          } else if (user.profile_status === 'REJECTED') {
+            status = 'REJECTED';
+          }
+
+          let stage = 'document_upload_completed';
+          if (user.onboarding_stage === 'eligibility_check') {
+            stage = 'eligibility_check';
+          } else if (user.onboarding_stage === 'professional_information') {
+            stage = 'professional_information';
+          } else if (user.onboarding_stage === 'review' || user.onboarding_stage === 'pending_verification') {
+            stage = 'review';
+          } else if (user.onboarding_stage === 'completed') {
+            stage = 'completed';
+          }
+
+          await sql`
+            INSERT INTO barrister (user_id, name, email, phone, status, stage)
+            VALUES (${user.id}, ${user.name || 'Unknown'}, ${user.email}, ${user.phone || null}, ${status}, ${stage})
+            ON CONFLICT (user_id) DO NOTHING
+          `;
+        } catch (syncError) {
+          // Log but don't fail the search
+          logger.error(`Error auto-syncing barrister ${user.id}:`, syncError);
+        }
+      }
+    } catch (syncError) {
+      // Log but don't fail the search
+      logger.error('Error during auto-sync in search:', syncError);
+    }
+
+    const barristers = await sql`
+      SELECT 
+        b.id,
+        b.user_id,
+        b.name,
+        b.email,
+        b.phone,
+        b.status,
+        b.stage,
+        bpi.chambers_name,
+        bpi.practice_address,
+        bpi.areas_of_practice,
+        bpi.services_offered,
+        bpi.pricing_model,
+        bpi.hourly_rate,
+        bpi.example_fee,
+        bpi.public_access_authorisation,
+        bp.full_name,
+        bp.bio,
+        bp.profile_photo_url,
+        bp.coverage_regions,
+        bp.languages,
+        bp.response_time
+      FROM barrister b
+      LEFT JOIN barrister_professional_info bpi ON b.user_id = bpi.user_id
+      LEFT JOIN barrister_profiles bp ON b.user_id = bp.user_id
+      WHERE b.status IN ('APPROVED', 'PENDING_VERIFICATION')
+      ${searchTerm ? sql`AND (
+        LOWER(b.name) LIKE LOWER(${`%${searchTerm}%`}) OR
+        LOWER(COALESCE(bpi.chambers_name, '')) LIKE LOWER(${`%${searchTerm}%`}) OR
+        LOWER(COALESCE(bp.full_name, '')) LIKE LOWER(${`%${searchTerm}%`})
+      )` : sql``}
+      ${selectedAreas.length ? sql`AND bpi.areas_of_practice && ${selectedAreas}` : sql``}
+      ${pricingFilter ? sql`AND bpi.pricing_model = ${pricingFilter}` : sql``}
+      ${publicAccessOnly === 'true' ? sql`AND COALESCE(bpi.public_access_authorisation, false) = true` : sql``}
+      ${maxRateValue !== null ? sql`AND bpi.hourly_rate IS NOT NULL AND bpi.hourly_rate <= ${maxRateValue}` : sql``}
+      ORDER BY 
+        COALESCE(bpi.hourly_rate, 999999) ASC,
+        b.name ASC
+      LIMIT ${limitNumber}
+      OFFSET ${offsetNumber}
+    `;
+
+    return res.status(200).json({
+      success: true,
+      count: barristers.length,
+      data: barristers,
+      barristers
+    });
+  } catch (error) {
+    logger.error('Error searching barristers:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to search barristers'
     });
   }
 }
@@ -2432,6 +2600,90 @@ export async function getResources(req, res) {
     res.status(500).json({
       success: false,
       error: 'Failed to fetch resources'
+    });
+  }
+}
+
+// ==================== SYNC BARRISTERS ====================
+
+/**
+ * Sync barristers from user table to barrister table
+ * POST /api/barrister/sync
+ * This endpoint creates barrister records for users with role='barrister' who don't have a barrister record
+ */
+export async function syncBarristers(req, res) {
+  try {
+    // Get all users with role='barrister' who don't have a barrister record
+    const usersWithoutBarristerRecord = await sql`
+      SELECT u.id, u.email, u.name, u.phone, u.profile_status, u.onboarding_stage
+      FROM "user" u
+      LEFT JOIN barrister b ON u.id = b.user_id
+      WHERE u.role = 'barrister' AND b.id IS NULL
+    `;
+
+    if (usersWithoutBarristerRecord.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: 'All barristers are already synced',
+        synced: 0
+      });
+    }
+
+    let syncedCount = 0;
+    const errors = [];
+
+    for (const user of usersWithoutBarristerRecord) {
+      try {
+        // Determine status based on profile_status
+        let status = 'PENDING_VERIFICATION';
+        if (user.profile_status === 'APPROVED') {
+          status = 'APPROVED';
+        } else if (user.profile_status === 'REJECTED') {
+          status = 'REJECTED';
+        }
+
+        // Determine stage based on onboarding_stage
+        let stage = 'document_upload_completed';
+        if (user.onboarding_stage === 'eligibility_check') {
+          stage = 'eligibility_check';
+        } else if (user.onboarding_stage === 'professional_information') {
+          stage = 'professional_information';
+        } else if (user.onboarding_stage === 'review' || user.onboarding_stage === 'pending_verification') {
+          stage = 'review';
+        } else if (user.onboarding_stage === 'completed') {
+          stage = 'completed';
+        }
+
+        await sql`
+          INSERT INTO barrister (user_id, name, email, phone, status, stage)
+          VALUES (${user.id}, ${user.name || 'Unknown'}, ${user.email}, ${user.phone || null}, ${status}, ${stage})
+          ON CONFLICT (user_id) DO NOTHING
+        `;
+        syncedCount++;
+      } catch (error) {
+        logger.error(`Error syncing barrister for user ${user.id}:`, error);
+        errors.push({ userId: user.id, email: user.email, error: error.message });
+      }
+    }
+
+    logger.log('Barrister sync completed:', {
+      synced: syncedCount,
+      total: usersWithoutBarristerRecord.length,
+      errors: errors.length
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Synced ${syncedCount} barrister(s)`,
+      synced: syncedCount,
+      total: usersWithoutBarristerRecord.length,
+      errors: errors.length > 0 ? errors : undefined
+    });
+  } catch (error) {
+    logger.error('Error syncing barristers:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to sync barristers'
     });
   }
 }

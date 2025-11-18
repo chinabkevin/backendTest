@@ -1,6 +1,87 @@
 import { sql } from "../config/db.js";
 import { createNotification } from "./notificationController.js";
 
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const isNumericString = (value) =>
+    typeof value === 'string' && /^\d+$/.test(value.trim());
+
+const isNumericValue = (value) =>
+    typeof value === 'number' && Number.isInteger(value);
+
+async function resolveUserId(identifier) {
+    if (identifier === null || identifier === undefined) {
+        return null;
+    }
+
+    if (isNumericValue(identifier)) {
+        return identifier;
+    }
+
+    if (typeof identifier === 'string') {
+        const trimmed = identifier.trim();
+        if (!trimmed) return null;
+
+        if (isNumericString(trimmed)) {
+            return parseInt(trimmed, 10);
+        }
+
+        if (emailRegex.test(trimmed.toLowerCase())) {
+            const userResult = await sql`
+                SELECT id FROM "user" WHERE LOWER(email) = LOWER(${trimmed})
+            `;
+            return userResult.length ? userResult[0].id : null;
+        }
+    }
+
+    return null;
+}
+
+async function resolveFreelancerRecord(identifier) {
+    if (identifier === null || identifier === undefined) {
+        return null;
+    }
+
+    const lookupByFreelancerId = async (id) => {
+        const freelancerById = await sql`
+            SELECT id, user_id, name, email, phone, is_available 
+            FROM freelancer 
+            WHERE id = ${id}
+        `;
+        if (freelancerById.length) return freelancerById[0];
+
+        const freelancerByUserId = await sql`
+            SELECT id, user_id, name, email, phone, is_available 
+            FROM freelancer 
+            WHERE user_id = ${id}
+        `;
+        return freelancerByUserId.length ? freelancerByUserId[0] : null;
+    };
+
+    if (isNumericValue(identifier)) {
+        return await lookupByFreelancerId(identifier);
+    }
+
+    if (typeof identifier === 'string') {
+        const trimmed = identifier.trim();
+        if (!trimmed) return null;
+
+        if (isNumericString(trimmed)) {
+            return await lookupByFreelancerId(parseInt(trimmed, 10));
+        }
+
+        if (emailRegex.test(trimmed.toLowerCase())) {
+            const userResult = await sql`
+                SELECT id FROM "user" WHERE LOWER(email) = LOWER(${trimmed})
+            `;
+            if (!userResult.length) return null;
+            return await lookupByFreelancerId(userResult[0].id);
+        }
+    }
+
+    return null;
+}
+
 // Create a new consultation
 export async function createConsultation(req, res) {
     console.log('createConsultation called with body:', req.body)
@@ -27,28 +108,16 @@ export async function createConsultation(req, res) {
             return res.status(400).json({ error: 'Invalid consultation type' });
         }
 
-        // Convert IDs from UUID to integer if needed
-        let actualClientId = clientId;
-        let actualFreelancerId = freelancerId;
-
-        // Handle clientId - could be UUID string or integer
-        console.log('Processing clientId:', clientId, 'type:', typeof clientId)
-        if (typeof clientId === 'string' && clientId.includes('-')) {
-            const userResult = await sql`SELECT id FROM "user" WHERE supabase_id = ${clientId}`;
-            if (!userResult.length) {
-                return res.status(404).json({ error: 'Client not found' });
-            }
-            actualClientId = userResult[0].id;
+        const actualClientId = await resolveUserId(clientId);
+        if (!actualClientId) {
+            return res.status(404).json({ error: 'Client not found' });
         }
 
-        // Handle freelancerId - could be UUID string or integer
-        if (typeof freelancerId === 'string' && freelancerId.includes('-')) {
-            const freelancerResult = await sql`SELECT id FROM freelancer WHERE user_id = ${freelancerId}`;
-            if (!freelancerResult.length) {
-                return res.status(404).json({ error: 'Freelancer not found' });
-            }
-            actualFreelancerId = freelancerResult[0].id;
+        const freelancerRecord = await resolveFreelancerRecord(freelancerId);
+        if (!freelancerRecord) {
+            return res.status(404).json({ error: 'Freelancer not found' });
         }
+        const actualFreelancerId = freelancerRecord.id;
 
         // Check if case exists and belongs to the client
         const caseResult = await sql`
@@ -115,14 +184,9 @@ export async function getConsultations(req, res) {
     const { status } = req.query;
 
     try {
-        // Convert userId from UUID to integer if needed
-        let actualUserId = userId;
-        if (typeof userId === 'string' && userId.includes('-')) {
-            const userResult = await sql`SELECT id FROM "user" WHERE supabase_id = ${userId}`;
-            if (!userResult.length) {
-                return res.status(404).json({ error: 'User not found' });
-            }
-            actualUserId = userResult[0].id;
+        const actualUserId = await resolveUserId(userId);
+        if (!actualUserId) {
+            return res.status(404).json({ error: 'User not found' });
         }
 
         let consultationsQuery;
@@ -323,7 +387,7 @@ export async function startConsultation(req, res) {
 
         // Get consultation details for notifications
         const consultationDetails = await sql`
-            SELECT c.*, f.user_id as freelancer_user_id, f.name as freelancer_name, u.supabase_id as client_supabase_id
+            SELECT c.*, f.user_id as freelancer_user_id, f.name as freelancer_name, u.id as client_user_id
             FROM consultations c
             LEFT JOIN freelancer f ON c.freelancer_id = f.id
             LEFT JOIN "user" u ON c.client_id = u.id
@@ -335,7 +399,7 @@ export async function startConsultation(req, res) {
             
             // Create notification for the client
             await createNotification(
-                consultation.client_supabase_id,
+                String(consultation.client_user_id),
                 'consultation_started',
                 'Consultation Started',
                 `Your ${consultation.consultation_type} consultation with ${consultation.freelancer_name} has started. ${consultation.consultation_type === 'video' ? 'Join using the meeting link.' : 'You can now begin your consultation.'}`,
@@ -383,7 +447,7 @@ export async function endConsultation(req, res) {
 
         // Get consultation details for notifications
         const consultationDetails = await sql`
-            SELECT c.*, f.user_id as freelancer_user_id, f.name as freelancer_name, u.supabase_id as client_supabase_id
+            SELECT c.*, f.user_id as freelancer_user_id, f.name as freelancer_name, u.id as client_user_id
             FROM consultations c
             LEFT JOIN freelancer f ON c.freelancer_id = f.id
             LEFT JOIN "user" u ON c.client_id = u.id
@@ -395,7 +459,7 @@ export async function endConsultation(req, res) {
             
             // Create notification for the client
             await createNotification(
-                consultation.client_supabase_id,
+                String(consultation.client_user_id),
                 'consultation_completed',
                 'Consultation Completed',
                 `Your ${consultation.consultation_type} consultation with ${consultation.freelancer_name} has been completed. You can now provide feedback and rate your experience.`,
@@ -515,14 +579,9 @@ export async function getConsultationStats(req, res) {
     const { userId, userType } = req.params;
 
     try {
-        // Convert userId from UUID to integer if needed
-        let actualUserId = userId;
-        if (typeof userId === 'string' && userId.includes('-')) {
-            const userResult = await sql`SELECT id FROM "user" WHERE supabase_id = ${userId}`;
-            if (!userResult.length) {
-                return res.status(404).json({ error: 'User not found' });
-            }
-            actualUserId = userResult[0].id;
+        const actualUserId = await resolveUserId(userId);
+        if (!actualUserId) {
+            return res.status(404).json({ error: 'User not found' });
         }
 
         let whereClause;
@@ -588,31 +647,21 @@ export const bookConsultation = async (req, res) => {
       
       const consultationType = methodMapping[method];
       
-      // Check if freelancer exists and is available
-      const freelancer = await sql`
-        SELECT id, is_available, name 
-        FROM freelancer 
-        WHERE user_id = ${lawyerId} AND is_available = true
-      `;
-      console.log("freelancer ++++++++++++++", freelancer);
-      
-      if (freelancer.length === 0) {
-        return res.status(404).json({ error: 'Lawyer not found or not available' });
-      }
-      
-      // Check if user exists
-      const user = await sql`
-        SELECT id FROM "user" WHERE supabase_id = ${userId}
-      `;
-      
-      if (user.length === 0) {
+      // Resolve client and freelancer identifiers
+      const clientDbId = await resolveUserId(userId);
+      if (!clientDbId) {
         return res.status(404).json({ error: 'User not found' });
+      }
+
+      const freelancerRecord = await resolveFreelancerRecord(lawyerId);
+      if (!freelancerRecord || freelancerRecord.is_available !== true) {
+        return res.status(404).json({ error: 'Lawyer not found or not available' });
       }
       
       // If caseId is provided, verify it belongs to the user
       if (caseId) {
         const caseResult = await sql`
-          SELECT id FROM "case" WHERE id = ${caseId} AND client_id = ${user[0].id}
+          SELECT id FROM "case" WHERE id = ${caseId} AND client_id = ${clientDbId}
         `;
         
         if (caseResult.length === 0) {
@@ -645,8 +694,8 @@ export const bookConsultation = async (req, res) => {
           created_at
         )
         VALUES (
-          ${user[0].id}, 
-          ${freelancer[0].id}, 
+          ${clientDbId}, 
+          ${freelancerRecord.id}, 
           ${datetime}, 
           ${consultationType}, 
           ${notes}, 
@@ -661,13 +710,13 @@ export const bookConsultation = async (req, res) => {
       
       // Create notification for the freelancer
       await createNotification(
-        lawyerId, // freelancer's user_id
+        String(freelancerRecord.user_id),
         'consultation_booked',
         'New Consultation Booked',
         `A client has booked a ${consultation.consultation_type} consultation with you for ${new Date(datetime).toLocaleDateString()} at ${new Date(datetime).toLocaleTimeString()}.`,
         { 
           consultation_id: consultation.id, 
-          client_id: user[0].id,
+          client_id: clientDbId,
           consultation_type: consultation.consultation_type,
           scheduled_at: datetime,
           meeting_link: consultation.meeting_link
@@ -676,13 +725,13 @@ export const bookConsultation = async (req, res) => {
 
       // Create notification for the client
       await createNotification(
-        userId, // client's supabase_id
+        String(clientDbId),
         'consultation_scheduled',
         'Consultation Scheduled',
-        `Your ${consultation.consultation_type} consultation with ${freelancer[0].name} has been scheduled for ${new Date(datetime).toLocaleDateString()} at ${new Date(datetime).toLocaleTimeString()}.`,
+        `Your ${consultation.consultation_type} consultation with ${freelancerRecord.name} has been scheduled for ${new Date(datetime).toLocaleDateString()} at ${new Date(datetime).toLocaleTimeString()}.`,
         { 
           consultation_id: consultation.id, 
-          freelancer_id: freelancer[0].id,
+          freelancer_id: freelancerRecord.id,
           consultation_type: consultation.consultation_type,
           scheduled_at: datetime,
           meeting_link: consultation.meeting_link
