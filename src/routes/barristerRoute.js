@@ -7,6 +7,7 @@ import {
   selectSubscription,
   confirmBarristerSubscription,
   submitLegalDeclarations,
+  searchBarristers,
   getBarristerByUserId,
   // Dashboard endpoints
   getBarristerDashboard,
@@ -25,7 +26,8 @@ import {
   sendMessage,
   getBilling,
   getResources,
-  getBarristerAnalytics
+  getBarristerAnalytics,
+  syncBarristers
 } from '../controllers/barristerController.js';
 import { uploadBarrister } from '../utils/fileUpload.js';
 
@@ -93,6 +95,12 @@ router.get('/resources/list', getResources);
 
 // Analytics
 router.get('/analytics', getBarristerAnalytics);
+
+// Search (must be before :userId route)
+router.get('/search', searchBarristers);
+
+// Sync barristers (admin utility - syncs users with role='barrister' to barrister table)
+router.post('/sync', syncBarristers);
 
 // Get barrister by user ID (must be last to avoid route conflicts)
 router.get('/:userId', getBarristerByUserId);

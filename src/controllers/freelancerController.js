@@ -684,36 +684,58 @@ export async function annotateCaseDocument(req, res) {
 
 // --- SEARCH ---
 export async function searchFreelancers(req, res) {
-    const { name } = req.query;
+    const {
+        q,
+        name,
+        practiceArea,
+        practiceAreas,
+        isAvailable,
+        minExperience,
+        limit = 20,
+        offset = 0,
+    } = req.query;
+
+    const searchTerm = (q || name || '').trim();
+    const areaParam = practiceAreas || practiceArea || '';
+    const selectedAreas = areaParam
+        ? areaParam.split(',').map((area) => area.trim()).filter(Boolean)
+        : [];
+    const availabilityFilter = isAvailable === 'true';
+
+    const limitNumber = Math.min(parseInt(limit, 10) || 20, 50);
+    const offsetNumber = Math.max(parseInt(offset, 10) || 0, 0);
+
+    let minExperienceValue = minExperience ? parseInt(minExperience, 10) : null;
+    if (Number.isNaN(minExperienceValue)) {
+        minExperienceValue = null;
+    }
+
     try {
-        let freelancers;
-        if (name) {
-            // Search by name (case-insensitive, partial match)
-            freelancers = await sql`
-                SELECT * FROM freelancer 
-                WHERE LOWER(name) LIKE LOWER(${`%${name}%`}) 
-                ORDER BY created_at DESC
-            `;
-        } else {
-            // If no name provided, return top 5 onboarded freelancers
-            freelancers = await sql`
-                SELECT * FROM freelancer 
-                ORDER BY created_at DESC 
-                LIMIT 5
-            `;
-        }
+        const freelancers = await sql`
+            SELECT 
+                f.*
+            FROM freelancer f
+            WHERE 1=1
+            ${searchTerm ? sql`AND (LOWER(f.name) LIKE LOWER(${`%${searchTerm}%`}) OR LOWER(f.email) LIKE LOWER(${`%${searchTerm}%`}))` : sql``}
+            ${selectedAreas.length ? sql`AND f.expertise_areas && ${selectedAreas}` : sql``}
+            ${availabilityFilter ? sql`AND f.is_available = true` : sql``}
+            ${minExperienceValue !== null ? sql`AND f.experience >= ${minExperienceValue}` : sql``}
+            ORDER BY 
+                COALESCE(f.performance_score, 0) DESC,
+                f.created_at DESC
+            LIMIT ${limitNumber}
+            OFFSET ${offsetNumber}
+        `;
 
-        if (freelancers.length === 0) {
-            return res.status(200).json({
-                message: "No onboarded lawyers found matching your search.",
-                freelancers: []
-            });
-        }
-
-        res.status(200).json({ freelancers });
+        return res.status(200).json({
+            success: true,
+            count: freelancers.length,
+            data: freelancers,
+            freelancers,
+        });
     } catch (error) {
         console.error('Error searching freelancers:', error);
-        res.status(500).json({ error: 'Failed to search freelancers' });
+        res.status(500).json({ success: false, error: 'Failed to search freelancers' });
     }
 }
 
