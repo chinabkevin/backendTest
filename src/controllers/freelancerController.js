@@ -711,13 +711,30 @@ export async function searchFreelancers(req, res) {
     }
 
     try {
+        // Build expertise area filter with partial matching
+        let expertiseFilter = sql``;
+        if (selectedAreas.length > 0) {
+            // Use OR conditions to match any of the selected areas
+            // This handles both exact matches and partial matches (e.g., "Corporate" matches "Corporate Law")
+            const areaConditions = selectedAreas.map(area => {
+                // Match if any expertise_area contains the search term (case-insensitive)
+                return sql`EXISTS (
+                    SELECT 1 FROM unnest(f.expertise_areas) AS expertise_area
+                    WHERE LOWER(expertise_area) LIKE LOWER(${`%${area}%`})
+                )`;
+            });
+            
+            // Combine all area conditions with OR
+            expertiseFilter = sql`AND (${sql.join(areaConditions, sql` OR `)})`;
+        }
+
         const freelancers = await sql`
             SELECT 
                 f.*
             FROM freelancer f
             WHERE 1=1
             ${searchTerm ? sql`AND (LOWER(f.name) LIKE LOWER(${`%${searchTerm}%`}) OR LOWER(f.email) LIKE LOWER(${`%${searchTerm}%`}))` : sql``}
-            ${selectedAreas.length ? sql`AND f.expertise_areas && ${selectedAreas}` : sql``}
+            ${expertiseFilter}
             ${availabilityFilter ? sql`AND f.is_available = true` : sql``}
             ${minExperienceValue !== null ? sql`AND f.experience >= ${minExperienceValue}` : sql``}
             ORDER BY 

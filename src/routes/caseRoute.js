@@ -9,7 +9,11 @@ import {
     updateCaseStatus,
     updateCaseDocument,
     getAvailableFreelancers,
-    getCaseStats
+    getCaseStats,
+    referCase,
+    getLawyerReferrals,
+    respondToReferral,
+    getBarristerReferrals
 } from '../controllers/caseController.js';
 import { userExists } from '../middleware/userExists.js';
 import { upload } from '../utils/fileUpload.js';
@@ -38,6 +42,12 @@ router.get('/user/:userId/:caseId', getCaseByIdForUser);
 router.post('/assign/:caseId', assignCaseToFreelancer);
 router.patch('/:caseId/status', updateCaseStatus);
 router.patch('/:caseId/document', updateCaseDocument);
+
+// Case referrals
+router.post('/refer', referCase);
+router.get('/referrals/lawyer/:lawyerId', getLawyerReferrals);
+router.get('/referrals/barrister/:barristerId', getBarristerReferrals);
+router.patch('/referrals/:referralId/respond', respondToReferral);
 
 // Available freelancers and stats
 router.get('/freelancers/available', getAvailableFreelancers);
