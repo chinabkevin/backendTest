@@ -562,4 +562,316 @@ export async function getCaseStats(req, res) {
         console.error('Error fetching case stats:', error);
         res.status(500).json({ error: 'Failed to fetch case stats' });
     }
+}
+
+// ==================== CASE REFERRALS ====================
+
+/**
+ * Refer a case from a barrister to a lawyer
+ * POST /api/cases/refer
+ */
+export async function referCase(req, res) {
+    const { caseId, barristerId, lawyerId, referralNotes } = req.body;
+    
+    try {
+        if (!caseId || !barristerId || !lawyerId) {
+            return res.status(400).json({ error: 'Missing required fields: caseId, barristerId, lawyerId' });
+        }
+
+        // Resolve barrister ID (handle UUID)
+        let actualBarristerId = barristerId;
+        if (barristerId.includes('-')) {
+            const user = await sql`SELECT id FROM "user" WHERE supabase_id = ${barristerId}`;
+            if (user.length === 0) {
+                return res.status(404).json({ error: 'Barrister not found' });
+            }
+            actualBarristerId = user[0].id;
+        }
+
+        // Verify case exists and belongs to barrister (or check if barrister has access)
+        const caseRecord = await sql`
+            SELECT c.*, u.name as client_name
+            FROM "case" c
+            LEFT JOIN "user" u ON c.client_id = u.id
+            WHERE c.id = ${caseId}
+        `;
+        
+        if (caseRecord.length === 0) {
+            return res.status(404).json({ error: 'Case not found' });
+        }
+
+        // Verify lawyer exists and is available
+        const lawyer = await sql`
+            SELECT f.*, u.supabase_id as user_supabase_id
+            FROM freelancer f
+            JOIN "user" u ON f.user_id = u.id
+            WHERE f.user_id = ${lawyerId} AND f.is_available = true
+        `;
+        
+        if (lawyer.length === 0) {
+            return res.status(404).json({ error: 'Lawyer not found or not available' });
+        }
+
+        // Check if referral already exists
+        const existingReferral = await sql`
+            SELECT * FROM case_referrals
+            WHERE case_id = ${caseId} AND lawyer_id = ${lawyerId} AND status = 'pending'
+        `;
+        
+        if (existingReferral.length > 0) {
+            return res.status(400).json({ error: 'A pending referral already exists for this case and lawyer' });
+        }
+
+        // Create referral
+        const referral = await sql`
+            INSERT INTO case_referrals (
+                case_id,
+                barrister_id,
+                lawyer_id,
+                referral_notes,
+                status,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                ${caseId},
+                ${actualBarristerId},
+                ${lawyerId},
+                ${referralNotes || null},
+                'pending',
+                NOW(),
+                NOW()
+            )
+            RETURNING *
+        `;
+
+        // Send notification to lawyer
+        try {
+            await createNotification(
+                lawyer[0].user_supabase_id,
+                'case_referral',
+                'New Case Referral',
+                `You have received a case referral from a barrister: "${caseRecord[0].title}"`,
+                {
+                    referral_id: referral[0].id,
+                    case_id: caseId,
+                    case_title: caseRecord[0].title,
+                    barrister_id: actualBarristerId
+                }
+            );
+        } catch (notificationError) {
+            console.error('Error sending notification:', notificationError);
+            // Don't fail the referral if notification fails
+        }
+
+        res.status(201).json({
+            success: true,
+            referral: referral[0],
+            message: 'Case referral created successfully'
+        });
+    } catch (error) {
+        console.error('Error creating case referral:', error);
+        res.status(500).json({ error: 'Failed to create case referral' });
+    }
+}
+
+/**
+ * Get referrals for a lawyer
+ * GET /api/cases/referrals/lawyer/:lawyerId
+ */
+export async function getLawyerReferrals(req, res) {
+    const { lawyerId } = req.params;
+    const { status } = req.query;
+    
+    try {
+        // Handle UUID format
+        let actualLawyerId = lawyerId;
+        if (lawyerId.includes('-')) {
+            const user = await sql`SELECT id FROM "user" WHERE supabase_id = ${lawyerId}`;
+            if (user.length === 0) {
+                return res.status(404).json({ error: 'Lawyer not found' });
+            }
+            actualLawyerId = user[0].id;
+        }
+
+        let query = sql`
+            SELECT 
+                cr.*,
+                c.title as case_title,
+                c.description as case_description,
+                c.status as case_status,
+                c.expertise_area,
+                c.priority,
+                c.case_summary_url,
+                c.jurisdiction,
+                c.case_type,
+                u.name as barrister_name,
+                u.email as barrister_email,
+                client.name as client_name,
+                client.email as client_email
+            FROM case_referrals cr
+            JOIN "case" c ON cr.case_id = c.id
+            JOIN "user" u ON cr.barrister_id = u.id
+            JOIN "user" client ON c.client_id = client.id
+            WHERE cr.lawyer_id = ${actualLawyerId}
+        `;
+        
+        if (status && status !== 'all') {
+            query = sql`${query} AND cr.status = ${status}`;
+        }
+        
+        query = sql`${query} ORDER BY cr.created_at DESC`;
+        
+        const referrals = await query;
+        res.json(referrals);
+    } catch (error) {
+        console.error('Error fetching lawyer referrals:', error);
+        res.status(500).json({ error: 'Failed to fetch referrals' });
+    }
+}
+
+/**
+ * Respond to a referral (accept or decline)
+ * PATCH /api/cases/referrals/:referralId/respond
+ */
+export async function respondToReferral(req, res) {
+    const { referralId } = req.params;
+    const { lawyerId, action, responseNotes } = req.body;
+    
+    try {
+        if (!lawyerId || !action || !['accept', 'decline'].includes(action)) {
+            return res.status(400).json({ error: 'Missing or invalid action. Must be "accept" or "decline"' });
+        }
+
+        // Resolve lawyer ID
+        let actualLawyerId = lawyerId;
+        if (lawyerId.includes('-')) {
+            const user = await sql`SELECT id FROM "user" WHERE supabase_id = ${lawyerId}`;
+            if (user.length === 0) {
+                return res.status(404).json({ error: 'Lawyer not found' });
+            }
+            actualLawyerId = user[0].id;
+        }
+
+        // Get referral
+        const referral = await sql`
+            SELECT cr.*, c.title as case_title
+            FROM case_referrals cr
+            JOIN "case" c ON cr.case_id = c.id
+            WHERE cr.id = ${referralId} AND cr.lawyer_id = ${actualLawyerId}
+        `;
+        
+        if (referral.length === 0) {
+            return res.status(404).json({ error: 'Referral not found or access denied' });
+        }
+
+        if (referral[0].status !== 'pending') {
+            return res.status(400).json({ error: 'Referral has already been responded to' });
+        }
+
+        const newStatus = action === 'accept' ? 'accepted' : 'declined';
+        
+        // Update referral
+        const updated = await sql`
+            UPDATE case_referrals
+            SET 
+                status = ${newStatus},
+                response_notes = ${responseNotes || null},
+                responded_at = NOW(),
+                updated_at = NOW()
+            WHERE id = ${referralId}
+            RETURNING *
+        `;
+
+        // If accepted, assign the case to the lawyer
+        if (action === 'accept') {
+            await sql`
+                UPDATE "case"
+                SET 
+                    freelancer_id = ${actualLawyerId},
+                    assigned_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = ${referral[0].case_id}
+            `;
+
+            // Get barrister supabase_id for notification
+            const barrister = await sql`
+                SELECT supabase_id FROM "user" WHERE id = ${referral[0].barrister_id}
+            `;
+            
+            if (barrister.length > 0) {
+                try {
+                    await createNotification(
+                        barrister[0].supabase_id,
+                        'referral_accepted',
+                        'Referral Accepted',
+                        `Your referral for case "${referral[0].case_title}" has been accepted by the lawyer.`,
+                        {
+                            referral_id: referralId,
+                            case_id: referral[0].case_id
+                        }
+                    );
+                } catch (notificationError) {
+                    console.error('Error sending notification:', notificationError);
+                }
+            }
+        }
+
+        res.json({
+            success: true,
+            referral: updated[0],
+            message: `Referral ${action}ed successfully`
+        });
+    } catch (error) {
+        console.error('Error responding to referral:', error);
+        res.status(500).json({ error: 'Failed to respond to referral' });
+    }
+}
+
+/**
+ * Get referrals made by a barrister
+ * GET /api/cases/referrals/barrister/:barristerId
+ */
+export async function getBarristerReferrals(req, res) {
+    const { barristerId } = req.params;
+    const { status } = req.query;
+    
+    try {
+        // Handle UUID format
+        let actualBarristerId = barristerId;
+        if (barristerId.includes('-')) {
+            const user = await sql`SELECT id FROM "user" WHERE supabase_id = ${barristerId}`;
+            if (user.length === 0) {
+                return res.status(404).json({ error: 'Barrister not found' });
+            }
+            actualBarristerId = user[0].id;
+        }
+
+        let query = sql`
+            SELECT 
+                cr.*,
+                c.title as case_title,
+                c.description as case_description,
+                c.status as case_status,
+                f.name as lawyer_name,
+                f.email as lawyer_email,
+                f.expertise_areas as lawyer_expertise
+            FROM case_referrals cr
+            JOIN "case" c ON cr.case_id = c.id
+            JOIN freelancer f ON cr.lawyer_id = f.user_id
+            WHERE cr.barrister_id = ${actualBarristerId}
+        `;
+        
+        if (status && status !== 'all') {
+            query = sql`${query} AND cr.status = ${status}`;
+        }
+        
+        query = sql`${query} ORDER BY cr.created_at DESC`;
+        
+        const referrals = await query;
+        res.json(referrals);
+    } catch (error) {
+        console.error('Error fetching barrister referrals:', error);
+        res.status(500).json({ error: 'Failed to fetch referrals' });
+    }
 } 

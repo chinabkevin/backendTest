@@ -52,9 +52,19 @@ export const uploadProfileImage = async (req, res) => {
       RETURNING id, profile_image_url, profile_image_public_id
     `;
 
+    // Also update barrister_profiles if it exists
+    await sql`
+      UPDATE barrister_profiles
+      SET 
+        profile_photo_url = ${uploadResult.url},
+        updated_at = NOW()
+      WHERE user_id = ${user[0].id}
+    `;
+
     res.json({
       success: true,
       message: 'Profile image uploaded successfully',
+      profile_image_url: uploadResult.url,
       profileImage: {
         url: uploadResult.url,
         publicId: uploadResult.public_id,
@@ -102,6 +112,15 @@ export const removeProfileImage = async (req, res) => {
         updated_at = NOW()
       WHERE id = ${user[0].id}
       RETURNING id
+    `;
+
+    // Also update barrister_profiles if it exists
+    await sql`
+      UPDATE barrister_profiles
+      SET 
+        profile_photo_url = NULL,
+        updated_at = NOW()
+      WHERE user_id = ${user[0].id}
     `;
 
     res.json({

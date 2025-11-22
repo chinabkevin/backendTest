@@ -1243,6 +1243,7 @@ export async function searchBarristers(req, res) {
       pricingModel,
       publicAccessOnly,
       maxRate,
+      status,
       limit = 20,
       offset = 0
     } = req.query;
@@ -1312,6 +1313,46 @@ export async function searchBarristers(req, res) {
       logger.error('Error during auto-sync in search:', syncError);
     }
 
+    // Determine status filter - default to APPROVED only
+    let statusFilter = ['APPROVED'];
+    if (status === 'approved') {
+      statusFilter = ['APPROVED'];
+    } else if (status === 'pending') {
+      statusFilter = ['PENDING_VERIFICATION'];
+    } else if (status === 'all') {
+      statusFilter = ['APPROVED', 'PENDING_VERIFICATION'];
+    }
+
+    console.log('[searchBarristers] ========== START ==========');
+    console.log('[searchBarristers] Query params:', {
+      searchTerm,
+      selectedAreas,
+      pricingFilter,
+      publicAccessOnly,
+      maxRateValue,
+      status,
+      statusFilter,
+      limitNumber,
+      offsetNumber
+    });
+
+    // Log total barristers before filtering
+    const totalBarristersCount = await sql`SELECT COUNT(*) as count FROM barrister`;
+    const approvedBarristersCount = await sql`SELECT COUNT(*) as count FROM barrister WHERE status = 'APPROVED'`;
+    const pendingBarristersCount = await sql`SELECT COUNT(*) as count FROM barrister WHERE status = 'PENDING_VERIFICATION'`;
+    console.log('[searchBarristers] Total barristers in DB:', totalBarristersCount[0]?.count);
+    console.log('[searchBarristers] Approved barristers in DB:', approvedBarristersCount[0]?.count);
+    console.log('[searchBarristers] Pending barristers in DB:', pendingBarristersCount[0]?.count);
+    
+    // Show sample of all barristers with their statuses
+    const sampleBarristers = await sql`
+      SELECT id, name, status, user_id 
+      FROM barrister 
+      ORDER BY id 
+      LIMIT 5
+    `;
+    console.log('[searchBarristers] Sample barristers (first 5):', sampleBarristers);
+
     const barristers = await sql`
       SELECT 
         b.id,
@@ -1338,7 +1379,7 @@ export async function searchBarristers(req, res) {
       FROM barrister b
       LEFT JOIN barrister_professional_info bpi ON b.user_id = bpi.user_id
       LEFT JOIN barrister_profiles bp ON b.user_id = bp.user_id
-      WHERE b.status IN ('APPROVED', 'PENDING_VERIFICATION')
+      WHERE b.status = ANY(${statusFilter})
       ${searchTerm ? sql`AND (
         LOWER(b.name) LIKE LOWER(${`%${searchTerm}%`}) OR
         LOWER(COALESCE(bpi.chambers_name, '')) LIKE LOWER(${`%${searchTerm}%`}) OR
@@ -1347,7 +1388,7 @@ export async function searchBarristers(req, res) {
       ${selectedAreas.length ? sql`AND bpi.areas_of_practice && ${selectedAreas}` : sql``}
       ${pricingFilter ? sql`AND bpi.pricing_model = ${pricingFilter}` : sql``}
       ${publicAccessOnly === 'true' ? sql`AND COALESCE(bpi.public_access_authorisation, false) = true` : sql``}
-      ${maxRateValue !== null ? sql`AND bpi.hourly_rate IS NOT NULL AND bpi.hourly_rate <= ${maxRateValue}` : sql``}
+      ${maxRateValue !== null ? sql`AND (bpi.hourly_rate IS NULL OR bpi.hourly_rate <= ${maxRateValue})` : sql``}
       ORDER BY 
         COALESCE(bpi.hourly_rate, 999999) ASC,
         b.name ASC
@@ -1355,12 +1396,68 @@ export async function searchBarristers(req, res) {
       OFFSET ${offsetNumber}
     `;
 
-    return res.status(200).json({
+    console.log('[searchBarristers] Found barristers:', barristers.length);
+    if (barristers.length > 0) {
+      console.log('[searchBarristers] Sample barrister data:', {
+        id: barristers[0].id,
+        name: barristers[0].name,
+        status: barristers[0].status,
+        has_professional_info: !!barristers[0].chambers_name,
+        has_profile: !!barristers[0].full_name,
+        public_access: barristers[0].public_access_authorisation
+      });
+    } else {
+      console.log('[searchBarristers] No barristers found with current filters');
+      // Check what barristers exist without filters
+      const allBarristers = await sql`
+        SELECT id, name, status, user_id 
+        FROM barrister 
+        ORDER BY id 
+        LIMIT 10
+      `;
+      console.log('[searchBarristers] Sample barristers in DB (first 10):', allBarristers);
+      
+      // Check if filters are too restrictive
+      const withoutPublicAccessFilter = await sql`
+        SELECT COUNT(*) as count
+        FROM barrister b
+        LEFT JOIN barrister_professional_info bpi ON b.user_id = bpi.user_id
+        WHERE b.status = ANY(${statusFilter})
+      `;
+      console.log('[searchBarristers] Barristers without publicAccess filter:', withoutPublicAccessFilter[0]?.count);
+      
+      const withoutMaxRateFilter = await sql`
+        SELECT COUNT(*) as count
+        FROM barrister b
+        LEFT JOIN barrister_professional_info bpi ON b.user_id = bpi.user_id
+        WHERE b.status = ANY(${statusFilter})
+        ${publicAccessOnly === 'true' ? sql`AND COALESCE(bpi.public_access_authorisation, false) = true` : sql``}
+      `;
+      console.log('[searchBarristers] Barristers without maxRate filter:', withoutMaxRateFilter[0]?.count);
+    }
+    
+    console.log('[searchBarristers] ========== END ==========');
+    
+    // Log the actual response being sent
+    const responseData = {
       success: true,
       count: barristers.length,
       data: barristers,
       barristers
+    };
+    console.log('[searchBarristers] Response being sent:', {
+      success: responseData.success,
+      count: responseData.count,
+      dataLength: responseData.data?.length,
+      barristersLength: responseData.barristers?.length,
+      firstBarrister: responseData.data?.[0] ? {
+        id: responseData.data[0].id,
+        name: responseData.data[0].name,
+        status: responseData.data[0].status
+      } : null
     });
+
+    return res.status(200).json(responseData);
   } catch (error) {
     logger.error('Error searching barristers:', error);
     res.status(500).json({
@@ -2201,40 +2298,90 @@ export async function updateBarristerProfile(req, res) {
       SELECT id FROM barrister_profiles WHERE user_id = ${dbUserId}
     `;
 
+    // Prepare arrays
+    const areasArray = profileData.areasOfPractice 
+      ? (Array.isArray(profileData.areasOfPractice) ? profileData.areasOfPractice : [profileData.areasOfPractice])
+      : [];
+    const consultationChannelsArray = profileData.consultationChannels
+      ? (Array.isArray(profileData.consultationChannels) ? profileData.consultationChannels : [profileData.consultationChannels])
+      : [];
+    const coverageRegionsArray = profileData.coverageRegions
+      ? (Array.isArray(profileData.coverageRegions) ? profileData.coverageRegions : [profileData.coverageRegions])
+      : [];
+    const languagesArray = profileData.languages
+      ? (Array.isArray(profileData.languages) ? profileData.languages : [profileData.languages])
+      : [];
+
+    // Check if profile is complete (all required fields filled)
+    const requiredFields = [
+      profileData.fullName,
+      profileData.bio,
+      areasArray.length > 0,
+      profileData.pricingModel,
+      profileData.keyStagesTimescales,
+    ];
+    const isComplete = requiredFields.every(field => field && (typeof field !== 'boolean' || field === true));
+
     let profile;
     if (existing.length > 0) {
       // Update existing profile
-      const areasArray = profileData.areasOfPractice 
-        ? (Array.isArray(profileData.areasOfPractice) ? profileData.areasOfPractice : [profileData.areasOfPractice])
-        : null;
-
       profile = await sql`
         UPDATE barrister_profiles
         SET 
           full_name = COALESCE(${profileData.fullName || null}, full_name),
+          trading_name = COALESCE(${profileData.tradingName || null}, trading_name),
           bio = COALESCE(${profileData.bio || null}, bio),
-          areas_of_practice = COALESCE(${areasArray || null}, areas_of_practice),
+          areas_of_practice = COALESCE(${areasArray.length > 0 ? areasArray : null}, areas_of_practice),
           pricing_model = COALESCE(${profileData.pricingModel || null}, pricing_model),
-          hourly_rate = COALESCE(${profileData.hourlyRate !== undefined ? profileData.hourlyRate : null}, hourly_rate),
+          hourly_rate = COALESCE(${profileData.hourlyRate !== undefined && profileData.hourlyRate !== null ? parseFloat(profileData.hourlyRate) : null}, hourly_rate),
           key_stages_timescales = COALESCE(${profileData.keyStagesTimescales || null}, key_stages_timescales),
+          complaints_info = COALESCE(${profileData.complaintsInfo || null}, complaints_info),
+          vat_status = COALESCE(${profileData.vatStatus || null}, vat_status),
+          response_time = COALESCE(${profileData.responseTime || null}, response_time),
+          consultation_channels = COALESCE(${consultationChannelsArray.length > 0 ? consultationChannelsArray : null}, consultation_channels),
+          coverage_regions = COALESCE(${coverageRegionsArray.length > 0 ? coverageRegionsArray : null}, coverage_regions),
+          languages = COALESCE(${languagesArray.length > 0 ? languagesArray : null}, languages),
+          profile_complete = ${isComplete},
           updated_at = NOW()
         WHERE user_id = ${dbUserId}
         RETURNING *
       `;
     } else {
-      // Create new profile - simplified for now
+      // Create new profile
       profile = await sql`
         INSERT INTO barrister_profiles (
-          user_id, full_name, bio, areas_of_practice, pricing_model, hourly_rate, key_stages_timescales
+          user_id, 
+          full_name, 
+          trading_name,
+          bio, 
+          areas_of_practice, 
+          pricing_model, 
+          hourly_rate, 
+          key_stages_timescales,
+          complaints_info,
+          vat_status,
+          response_time,
+          consultation_channels,
+          coverage_regions,
+          languages,
+          profile_complete
         )
         VALUES (
           ${dbUserId},
           ${profileData.fullName || null},
+          ${profileData.tradingName || null},
           ${profileData.bio || null},
-          ${Array.isArray(profileData.areasOfPractice) ? profileData.areasOfPractice : (profileData.areasOfPractice ? [profileData.areasOfPractice] : [])},
+          ${areasArray.length > 0 ? areasArray : []},
           ${profileData.pricingModel || null},
-          ${profileData.hourlyRate || null},
-          ${profileData.keyStagesTimescales || null}
+          ${profileData.hourlyRate !== undefined && profileData.hourlyRate !== null ? parseFloat(profileData.hourlyRate) : null},
+          ${profileData.keyStagesTimescales || null},
+          ${profileData.complaintsInfo || null},
+          ${profileData.vatStatus || null},
+          ${profileData.responseTime || null},
+          ${consultationChannelsArray.length > 0 ? consultationChannelsArray : []},
+          ${coverageRegionsArray.length > 0 ? coverageRegionsArray : []},
+          ${languagesArray.length > 0 ? languagesArray : []},
+          ${isComplete}
         )
         RETURNING *
       `;
@@ -2310,16 +2457,34 @@ export async function getBarristerCompliance(req, res) {
  */
 export async function uploadComplianceDocument(req, res) {
   try {
+    console.log('[uploadComplianceDocument] Request received:', {
+      body: req.body,
+      hasFile: !!req.file,
+      fileInfo: req.file ? {
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size,
+        path: req.file.path
+      } : null
+    });
+
     const { userId, documentType, documentName, expiryDate } = req.body;
 
     if (!userId || !documentType || !documentName) {
+      console.log('[uploadComplianceDocument] Missing required fields:', {
+        hasUserId: !!userId,
+        hasDocumentType: !!documentType,
+        hasDocumentName: !!documentName
+      });
       return res.status(400).json({
         success: false,
         error: 'User ID, document type, and document name are required'
       });
     }
 
-    if (!req.files || !req.files.document || req.files.document.length === 0) {
+    // Check for file - using req.file since route uses .single()
+    if (!req.file) {
+      console.log('[uploadComplianceDocument] No file provided');
       return res.status(400).json({
         success: false,
         error: 'Document file is required'
@@ -2332,6 +2497,7 @@ export async function uploadComplianceDocument(req, res) {
     `;
 
     if (user.length === 0) {
+      console.log('[uploadComplianceDocument] User not found:', userId);
       return res.status(404).json({
         success: false,
         error: 'User not found'
@@ -2339,17 +2505,25 @@ export async function uploadComplianceDocument(req, res) {
     }
 
     const dbUserId = user[0].id;
+    console.log('[uploadComplianceDocument] User found, dbUserId:', dbUserId);
 
-    // Upload file
-    const file = req.files.document[0];
-    const uploadResult = await uploadBarristerDocument(file, dbUserId, documentType);
+    // Upload file to Cloudinary - req.file is the uploaded file from multer.single()
+    // This uses uploadToCloudinary which uploads to Cloudinary
+    console.log('[uploadComplianceDocument] Starting Cloudinary upload...');
+    const uploadResult = await uploadBarristerDocument(req.file, dbUserId, documentType);
 
     if (!uploadResult.success) {
+      console.error('[uploadComplianceDocument] Cloudinary upload failed:', uploadResult.error);
       return res.status(500).json({
         success: false,
-        error: 'Failed to upload document'
+        error: uploadResult.error || 'Failed to upload document to Cloudinary'
       });
     }
+
+    console.log('[uploadComplianceDocument] Cloudinary upload successful:', {
+      url: uploadResult.url,
+      public_id: uploadResult.public_id
+    });
 
     // Save to database
     const compliance = await sql`
@@ -2367,16 +2541,22 @@ export async function uploadComplianceDocument(req, res) {
       RETURNING *
     `;
 
+    console.log('[uploadComplianceDocument] Document saved to database:', compliance[0].id);
+
     res.json({
       success: true,
-      message: 'Compliance document uploaded successfully',
+      message: 'Compliance document uploaded successfully to Cloudinary',
       data: compliance[0]
     });
   } catch (error) {
     logger.error('Error uploading compliance document:', error);
+    console.error('[uploadComplianceDocument] Error details:', {
+      message: error.message,
+      stack: error.stack
+    });
     res.status(500).json({
       success: false,
-      error: 'Failed to upload compliance document'
+      error: error.message || 'Failed to upload compliance document'
     });
   }
 }
@@ -2384,12 +2564,12 @@ export async function uploadComplianceDocument(req, res) {
 // ==================== MESSAGES ====================
 
 /**
- * Get messages for a barrister
- * GET /api/messages/:clientId
+ * Get messages between two users (barrister-lawyer, barrister-client, etc.)
+ * GET /api/messages/:otherUserId
  */
 export async function getMessages(req, res) {
   try {
-    const { clientId } = req.params;
+    const { otherUserId } = req.params;
     const { userId } = req.query;
 
     if (!userId) {
@@ -2412,7 +2592,34 @@ export async function getMessages(req, res) {
     }
 
     const dbUserId = user[0].id;
-    const dbClientId = parseInt(clientId);
+    
+    // Handle otherUserId - could be user_id (from freelancer) or database id
+    let dbOtherUserId;
+    if (otherUserId.includes('-')) {
+      // It's a UUID, get the database ID
+      const otherUser = await sql`
+        SELECT id FROM "user" WHERE supabase_id = ${otherUserId}
+      `;
+      if (otherUser.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Other user not found'
+        });
+      }
+      dbOtherUserId = otherUser[0].id;
+    } else {
+      // It's a database ID (from freelancer.user_id)
+      // First check if it's a freelancer user_id
+      const freelancer = await sql`
+        SELECT user_id FROM freelancer WHERE user_id = ${parseInt(otherUserId)}
+      `;
+      if (freelancer.length > 0) {
+        dbOtherUserId = parseInt(otherUserId);
+      } else {
+        // Try as direct user ID
+        dbOtherUserId = parseInt(otherUserId);
+      }
+    }
 
     const messages = await sql`
       SELECT 
@@ -2422,8 +2629,8 @@ export async function getMessages(req, res) {
       FROM messages m
       JOIN "user" sender ON m.sender_id = sender.id
       JOIN "user" receiver ON m.receiver_id = receiver.id
-      WHERE (m.sender_id = ${dbUserId} AND m.receiver_id = ${dbClientId})
-         OR (m.sender_id = ${dbClientId} AND m.receiver_id = ${dbUserId})
+      WHERE (m.sender_id = ${dbUserId} AND m.receiver_id = ${dbOtherUserId})
+         OR (m.sender_id = ${dbOtherUserId} AND m.receiver_id = ${dbUserId})
       ORDER BY m.created_at ASC
     `;
 
@@ -2468,7 +2675,25 @@ export async function sendMessage(req, res) {
     }
 
     const dbSenderId = sender[0].id;
-    const dbReceiverId = parseInt(receiverId);
+    
+    // Handle receiverId - could be user_id (from freelancer) or database id
+    let dbReceiverId;
+    if (receiverId.includes && receiverId.includes('-')) {
+      // It's a UUID, get the database ID
+      const receiver = await sql`
+        SELECT id FROM "user" WHERE supabase_id = ${receiverId}
+      `;
+      if (receiver.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Receiver not found'
+        });
+      }
+      dbReceiverId = receiver[0].id;
+    } else {
+      // It's a database ID (from freelancer.user_id, which is the same as user.id)
+      dbReceiverId = parseInt(receiverId);
+    }
 
     const message = await sql`
       INSERT INTO messages (
@@ -2510,6 +2735,192 @@ export async function sendMessage(req, res) {
     res.status(500).json({
       success: false,
       error: 'Failed to send message'
+    });
+  }
+}
+
+/**
+ * Get conversations list for a user (barrister or lawyer)
+ * GET /api/messages/conversations
+ */
+export async function getConversations(req, res) {
+  try {
+    const { userId } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'User ID is required'
+      });
+    }
+
+    const user = await sql`
+      SELECT id FROM "user" 
+      WHERE supabase_id = ${userId} OR id = ${parseInt(userId) || 0}
+    `;
+
+    if (user.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const dbUserId = user[0].id;
+
+    // Get all conversations where user is sender or receiver
+    // Group by the other participant and get the latest message
+    const allMessages = await sql`
+      SELECT 
+        m.*,
+        CASE 
+          WHEN m.sender_id = ${dbUserId} THEN m.receiver_id
+          ELSE m.sender_id
+        END as other_user_id,
+        CASE 
+          WHEN m.sender_id = ${dbUserId} THEN receiver.name
+          ELSE sender.name
+        END as other_user_name,
+        CASE 
+          WHEN m.sender_id = ${dbUserId} THEN receiver.email
+          ELSE sender.email
+        END as other_user_email,
+        CASE 
+          WHEN m.sender_id = ${dbUserId} THEN receiver.id
+          ELSE sender.id
+        END as other_user_db_id
+      FROM messages m
+      JOIN "user" sender ON m.sender_id = sender.id
+      JOIN "user" receiver ON m.receiver_id = receiver.id
+      WHERE m.sender_id = ${dbUserId} OR m.receiver_id = ${dbUserId}
+      ORDER BY m.created_at DESC
+    `;
+
+    // Group by other_user_id and get latest message for each
+    const conversationMap = new Map();
+    
+    for (const msg of allMessages) {
+      const otherUserId = msg.other_user_id;
+      if (!conversationMap.has(otherUserId)) {
+        conversationMap.set(otherUserId, {
+          other_user_id: otherUserId,
+          other_user_db_id: msg.other_user_db_id,
+          other_user_name: msg.other_user_name,
+          other_user_email: msg.other_user_email,
+          last_message_id: msg.id,
+          last_message_content: msg.content,
+          last_message_subject: msg.subject,
+          last_message_time: msg.created_at,
+          unread_count: 0
+        });
+      }
+      
+      // Count unread messages
+      if (msg.receiver_id === dbUserId && !msg.is_read) {
+        const conv = conversationMap.get(otherUserId);
+        conv.unread_count += 1;
+      }
+    }
+
+    // Get online status for each conversation
+    const conversations = await Promise.all(
+      Array.from(conversationMap.values()).map(async (conv) => {
+        // Check if other user is a lawyer (freelancer)
+        const freelancerCheck = await sql`
+          SELECT is_available 
+          FROM freelancer 
+          WHERE user_id = ${conv.other_user_db_id}
+        `;
+        
+        let isOnline = false;
+        if (freelancerCheck.length > 0) {
+          isOnline = freelancerCheck[0].is_available || false;
+        } else {
+          // Check if other user is a barrister
+          const barristerCheck = await sql`
+            SELECT user_id 
+            FROM barrister_profiles 
+            WHERE user_id = ${conv.other_user_db_id}
+          `;
+          if (barristerCheck.length > 0) {
+            isOnline = true; // You can add barrister availability logic here
+          }
+        }
+
+        return {
+          ...conv,
+          is_online: isOnline
+        };
+      })
+    );
+
+    // Sort by last message time
+    conversations.sort((a, b) => 
+      new Date(b.last_message_time).getTime() - new Date(a.last_message_time).getTime()
+    );
+
+    res.json({
+      success: true,
+      data: conversations
+    });
+  } catch (error) {
+    logger.error('Error fetching conversations:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch conversations'
+    });
+  }
+}
+
+/**
+ * Mark messages as read
+ * PATCH /api/messages/read
+ */
+export async function markMessagesAsRead(req, res) {
+  try {
+    const { userId, otherUserId } = req.body;
+
+    if (!userId || !otherUserId) {
+      return res.status(400).json({
+        success: false,
+        error: 'User ID and other user ID are required'
+      });
+    }
+
+    const user = await sql`
+      SELECT id FROM "user" 
+      WHERE supabase_id = ${userId} OR id = ${parseInt(userId) || 0}
+    `;
+
+    if (user.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const dbUserId = user[0].id;
+    const dbOtherUserId = parseInt(otherUserId);
+
+    const updated = await sql`
+      UPDATE messages
+      SET is_read = true, read_at = NOW()
+      WHERE receiver_id = ${dbUserId} 
+        AND sender_id = ${dbOtherUserId}
+        AND is_read = false
+      RETURNING id
+    `;
+
+    res.json({
+      success: true,
+      message: 'Messages marked as read',
+      count: updated.length
+    });
+  } catch (error) {
+    logger.error('Error marking messages as read:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to mark messages as read'
     });
   }
 }
