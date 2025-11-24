@@ -16,6 +16,7 @@ import { addBarristerOnboardingTables } from './add_barrister_onboarding_tables.
 import { addBarristerProfessionalInfoTables } from './add_barrister_professional_info_tables.js';
 import { addBarristerDashboardTables } from './add_barrister_dashboard_tables.js';
 import { addCaseReferralsTable } from './add_case_referrals_table.js';
+import { addCaseBarristerSupport } from './add_case_barrister_support.js';
 
 /**
  * Run all migrations in sequence
@@ -95,6 +96,10 @@ async function runMigrations() {
     // Run case referrals table migration
     const caseReferralsResult = await addCaseReferralsTable();
     console.log('Case referrals table migration result:', caseReferralsResult);
+    
+    // Run case barrister support migration
+    const caseBarristerSupportResult = await addCaseBarristerSupport();
+    console.log('Case barrister support migration result:', caseBarristerSupportResult);
     
     // Add future migrations here
     
