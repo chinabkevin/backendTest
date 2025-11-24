@@ -53,40 +53,9 @@ export async function registerCase(req, res) {
             } else {
                 return res.status(400).json({ error: 'Requested lawyer is not available or does not exist' });
             }
-        } else {
-            // Auto-assign available freelancer with matching expertise
-            let freelancer = null;
-            if (expertiseArea) {
-                const candidates = await sql`
-                    SELECT * FROM freelancer 
-                    WHERE is_available = true 
-                    AND ${expertiseArea} = ANY(expertise_areas) 
-                    ORDER BY performance_score DESC, total_earnings ASC 
-                    LIMIT 1
-                `;
-                if (candidates.length > 0) {
-                    freelancer = candidates[0];
-                }
-            }
-            
-            // If no match, assign to any available freelancer
-            if (!freelancer) {
-                const anyAvailable = await sql`
-                    SELECT * FROM freelancer 
-                    WHERE is_available = true 
-                    ORDER BY performance_score DESC, total_earnings ASC 
-                    LIMIT 1
-                `;
-                if (anyAvailable.length > 0) {
-                    freelancer = anyAvailable[0];
-                }
-            }
-            
-            if (freelancer) {
-                assignedFreelancerId = freelancer.user_id;
-                assignedAt = 'NOW()';
-            }
         }
+        // Note: Removed auto-assignment - cases will remain unassigned until manually assigned
+        // This allows both lawyers and barristers to see and accept available cases
 
         // Create case first to get the case ID
         const newCase = await sql`
@@ -198,11 +167,67 @@ export async function registerCase(req, res) {
             console.error('Error sending notifications to freelancers:', notificationError);
             // Don't fail the case creation if notifications fail
         }
+
+        // Send notifications to available barristers
+        try {
+            // Get all approved barristers who match the expertise area (if specified)
+            let availableBarristers;
+            if (expertiseArea) {
+                availableBarristers = await sql`
+                    SELECT b.*, u.supabase_id as user_supabase_id, bp.areas_of_practice
+                    FROM barrister b
+                    JOIN "user" u ON b.user_id = u.id
+                    LEFT JOIN barrister_profiles bp ON b.user_id = bp.user_id
+                    WHERE b.status = 'APPROVED'
+                    AND (
+                        ${expertiseArea} = ANY(COALESCE(bp.areas_of_practice, ARRAY[]::TEXT[]))
+                        OR bp.areas_of_practice IS NULL
+                    )
+                `;
+            } else {
+                availableBarristers = await sql`
+                    SELECT b.*, u.supabase_id as user_supabase_id
+                    FROM barrister b
+                    JOIN "user" u ON b.user_id = u.id
+                    WHERE b.status = 'APPROVED'
+                `;
+            }
+
+            // Send notification to each available barrister
+            for (const barrister of availableBarristers) {
+                try {
+                    await createNotification(
+                        barrister.user_supabase_id,
+                        'case_available',
+                        'New Case Available',
+                        `A new case "${title}" has been submitted and is available for assignment. ${expertiseArea ? `Expertise area: ${expertiseArea}` : ''} Priority: ${priority || 'medium'}`,
+                        {
+                            case_id: newCase[0].id,
+                            case_title: title,
+                            expertise_area: expertiseArea,
+                            priority: priority || 'medium',
+                            jurisdiction: jurisdiction,
+                            case_type: caseType,
+                            client_notes: clientNotes
+                        }
+                    );
+                    console.log(`Notification sent to barrister ${barrister.name} (ID: ${barrister.id})`);
+                } catch (notificationError) {
+                    console.error(`Failed to send notification to barrister ${barrister.name}:`, notificationError);
+                    // Continue with other barristers even if one fails
+                }
+            }
+
+            console.log(`Sent notifications to ${availableBarristers.length} available barristers for case ${newCase[0].id}`);
+        } catch (notificationError) {
+            console.error('Error sending notifications to barristers:', notificationError);
+            // Don't fail the case creation if notifications fail
+        }
         
         res.status(201).json({
             success: true,
             case: { ...newCase[0], case_summary_url: caseSummaryUrl },
-            message: assignedFreelancerId ? 'Case assigned to lawyer' : 'Case created, waiting for lawyer assignment'
+            message: assignedFreelancerId ? 'Case assigned to lawyer' : 'Case created, available for assignment to lawyers or barristers'
         });
     } catch (error) {
         console.error('Error registering case:', error);
@@ -230,10 +255,13 @@ export async function getClientCases(req, res) {
                 u.name as client_name,
                 u.email as client_email,
                 f.name as freelancer_name,
-                f.email as freelancer_email
+                f.email as freelancer_email,
+                b.name as barrister_name,
+                b.email as barrister_email
             FROM "case" c
             LEFT JOIN "user" u ON c.client_id = u.id
-            LEFT JOIN freelancer f ON c.freelancer_id = f.id
+            LEFT JOIN freelancer f ON c.freelancer_id = f.user_id
+            LEFT JOIN barrister b ON c.barrister_id = b.user_id
             WHERE c.client_id = ${actualClientId} 
             ORDER BY c.created_at DESC
         `;
@@ -281,6 +309,46 @@ export async function getFreelancerCases(req, res) {
     } catch (error) {
         console.error('Error fetching freelancer cases:', error);
         res.status(500).json({ error: 'Failed to fetch freelancer cases' });
+    }
+}
+
+export async function getBarristerCases(req, res) {
+    const { barristerId } = req.params;
+    const { status } = req.query;
+    
+    try {
+        // Handle UUID format
+        let actualBarristerId = barristerId;
+        if (barristerId.includes('-')) {
+            // UUID format - get the local user ID
+            const user = await sql`SELECT id FROM "user" WHERE supabase_id = ${barristerId}`;
+            if (user.length === 0) {
+                return res.status(404).json({ error: 'User not found' });
+            }
+            actualBarristerId = user[0].id;
+        }
+
+        let query = sql`
+            SELECT 
+                c.*,
+                u.name as client_name,
+                u.email as client_email
+            FROM "case" c
+            LEFT JOIN "user" u ON c.client_id = u.id
+            WHERE c.barrister_id = ${actualBarristerId}
+        `;
+        
+        if (status && status !== 'all') {
+            query = sql`${query} AND c.status = ${status}`;
+        }
+        
+        query = sql`${query} ORDER BY c.created_at DESC`;
+        
+        const cases = await query;
+        res.json(cases);
+    } catch (error) {
+        console.error('Error fetching barrister cases:', error);
+        res.status(500).json({ error: 'Failed to fetch barrister cases' });
     }
 }
 
@@ -341,35 +409,133 @@ export async function getCaseByIdForUser(req, res) {
 
 export async function assignCaseToFreelancer(req, res) {
     const { caseId } = req.params;
-    const { freelancerId } = req.body;
+    const { freelancerId, barristerId, assigneeType } = req.body;
     try {
-        if (!freelancerId) return res.status(400).json({ error: 'Missing freelancerId' });
-        
-        // Check if freelancer exists and is available
-        const freelancer = await sql`
-            SELECT * FROM freelancer WHERE user_id = ${freelancerId} AND is_available = true
-        `;
-        
-        if (freelancer.length === 0) {
-            return res.status(400).json({ error: 'Freelancer not found or not available' });
+        // Validate that either freelancerId or barristerId is provided
+        if (!freelancerId && !barristerId) {
+            return res.status(400).json({ error: 'Missing freelancerId or barristerId' });
         }
         
-        const updated = await sql`
-            UPDATE "case" 
-            SET freelancer_id = ${freelancerId}, 
-                assigned_at = NOW(), 
-                updated_at = NOW() 
-            WHERE id = ${caseId} 
-            RETURNING *
-        `;
-        
-        if (!updated.length) return res.status(404).json({ error: 'Case not found' });
-        
-        res.json({
-            success: true,
-            case: updated[0],
-            message: 'Case assigned successfully'
-        });
+        if (freelancerId && barristerId) {
+            return res.status(400).json({ error: 'Cannot assign to both freelancer and barrister' });
+        }
+
+        // Get the case first to check if it exists
+        const caseRecord = await sql`SELECT * FROM "case" WHERE id = ${caseId}`;
+        if (caseRecord.length === 0) {
+            return res.status(404).json({ error: 'Case not found' });
+        }
+
+        let assignedUserId = null;
+        let assignedName = null;
+        let assignedEmail = null;
+        let notificationMessage = '';
+
+        if (freelancerId) {
+            // Check if freelancer exists and is available
+            const freelancer = await sql`
+                SELECT f.*, u.supabase_id, u.name, u.email 
+                FROM freelancer f
+                JOIN "user" u ON f.user_id = u.id
+                WHERE f.user_id = ${freelancerId} AND f.is_available = true
+            `;
+            
+            if (freelancer.length === 0) {
+                return res.status(400).json({ error: 'Freelancer not found or not available' });
+            }
+
+            assignedUserId = freelancer[0].supabase_id;
+            assignedName = freelancer[0].name;
+            assignedEmail = freelancer[0].email;
+            notificationMessage = `You have been assigned to case "${caseRecord[0].title}"`;
+
+            // Update case with freelancer assignment
+            const updated = await sql`
+                UPDATE "case" 
+                SET freelancer_id = ${freelancerId}, 
+                    barrister_id = NULL,
+                    assigned_at = NOW(), 
+                    updated_at = NOW() 
+                WHERE id = ${caseId} 
+                RETURNING *
+            `;
+            
+            // Send notification to freelancer
+            try {
+                await createNotification(
+                    assignedUserId,
+                    'case_assigned',
+                    'Case Assigned',
+                    notificationMessage,
+                    {
+                        case_id: parseInt(caseId),
+                        case_title: caseRecord[0].title,
+                        assignee_type: 'lawyer'
+                    }
+                );
+            } catch (notificationError) {
+                console.error('Error sending notification:', notificationError);
+                // Don't fail the assignment if notification fails
+            }
+
+            return res.json({
+                success: true,
+                case: updated[0],
+                message: 'Case assigned to lawyer successfully'
+            });
+        } else if (barristerId) {
+            // Check if barrister exists and is approved
+            const barrister = await sql`
+                SELECT b.*, u.supabase_id, u.name, u.email 
+                FROM barrister b
+                JOIN "user" u ON b.user_id = u.id
+                WHERE b.user_id = ${barristerId} AND b.status = 'APPROVED'
+            `;
+            
+            if (barrister.length === 0) {
+                return res.status(400).json({ error: 'Barrister not found or not approved' });
+            }
+
+            assignedUserId = barrister[0].supabase_id;
+            assignedName = barrister[0].name;
+            assignedEmail = barrister[0].email;
+            notificationMessage = `You have been assigned to case "${caseRecord[0].title}"`;
+
+            // Update case with barrister assignment
+            const updated = await sql`
+                UPDATE "case" 
+                SET barrister_id = ${barristerId}, 
+                    freelancer_id = NULL,
+                    assigned_at = NOW(), 
+                    updated_at = NOW() 
+                WHERE id = ${caseId} 
+                RETURNING *
+            `;
+            
+            // Send notification to barrister
+            try {
+                await createNotification(
+                    assignedUserId,
+                    'case_assigned',
+                    'Case Assigned',
+                    notificationMessage,
+                    {
+                        case_id: parseInt(caseId),
+                        case_title: caseRecord[0].title,
+                        assignee_type: 'barrister'
+                    }
+                );
+            } catch (notificationError) {
+                console.error('Error sending notification:', notificationError);
+                // Don't fail the assignment if notification fails
+            }
+
+            return res.json({
+                success: true,
+                case: updated[0],
+                message: 'Case assigned to barrister successfully'
+            });
+        }
     } catch (error) {
         console.error('Error assigning case:', error);
         res.status(500).json({ error: 'Failed to assign case' });
@@ -509,6 +675,68 @@ export async function getAvailableFreelancers(req, res) {
     } catch (error) {
         console.error('Error fetching available freelancers:', error);
         res.status(500).json({ error: 'Failed to fetch available freelancers' });
+    }
+}
+
+export async function getAvailableBarristers(req, res) {
+    const { expertiseArea } = req.query;
+    
+    try {
+        let query = sql`
+            SELECT 
+                b.user_id,
+                b.name,
+                b.email,
+                b.status,
+                bp.areas_of_practice,
+                bp.hourly_rate
+            FROM barrister b
+            LEFT JOIN barrister_profiles bp ON b.user_id = bp.user_id
+            WHERE b.status = 'APPROVED'
+        `;
+        
+        if (expertiseArea) {
+            query = sql`${query} AND ${expertiseArea} = ANY(COALESCE(bp.areas_of_practice, ARRAY[]::TEXT[]))`;
+        }
+        
+        query = sql`${query} ORDER BY b.name ASC`;
+        
+        const barristers = await query;
+        res.json(barristers);
+    } catch (error) {
+        console.error('Error fetching available barristers:', error);
+        res.status(500).json({ error: 'Failed to fetch available barristers' });
+    }
+}
+
+export async function getAvailableCases(req, res) {
+    const { expertiseArea, status } = req.query;
+    
+    try {
+        // Get cases that are not assigned to anyone (no freelancer_id and no barrister_id)
+        let query = sql`
+            SELECT 
+                c.*,
+                u.name as client_name,
+                u.email as client_email
+            FROM "case" c
+            LEFT JOIN "user" u ON c.client_id = u.id
+            WHERE c.freelancer_id IS NULL 
+            AND c.barrister_id IS NULL
+            AND c.status = COALESCE(${status || 'pending'}, 'pending')
+        `;
+        
+        if (expertiseArea) {
+            query = sql`${query} AND c.expertise_area = ${expertiseArea}`;
+        }
+        
+        query = sql`${query} ORDER BY c.created_at DESC`;
+        
+        const cases = await query;
+        res.json(cases);
+    } catch (error) {
+        console.error('Error fetching available cases:', error);
+        res.status(500).json({ error: 'Failed to fetch available cases' });
     }
 }
 
