@@ -126,3 +126,30 @@ export const sendBarristerWelcomeEmail = async (email, name) => {
   }
 };
 
+/**
+ * Send lawyer/freelancer welcome email
+ * @param {string} email - Recipient email
+ * @param {string} name - Recipient name
+ * @returns {Promise<Object>} - Email sending result
+ */
+export const sendLawyerWelcomeEmail = async (email, name) => {
+  try {
+    const subject = 'Welcome to AdvoQat – Registration Under Review';
+    const htmlContent = await loadTemplate('lawyerWelcome', {
+      name: name || 'Lawyer'
+    });
+
+    return await sendEmail({
+      to: email,
+      subject,
+      htmlContent
+    });
+  } catch (error) {
+    logger.error('Error sending lawyer welcome email:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to send welcome email'
+    };
+  }
+};
+
