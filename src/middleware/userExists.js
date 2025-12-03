@@ -20,8 +20,11 @@ export async function userExists(req, res, next) {
 
         let user;
         
+        // Convert userId to string for checking format
+        const userIdString = String(userId);
+        
         // Check if userId is a UUID (Supabase ID) or integer (local DB ID)
-        if (userId.includes('-')) {
+        if (userIdString.includes('-')) {
             console.log('Checking for UUID user:', userId);
             // UUID format - check supabase_id
             user = await sql`SELECT * FROM "user" WHERE supabase_id = ${userId}`;

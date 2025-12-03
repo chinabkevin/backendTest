@@ -1,5 +1,7 @@
 import { sql } from "../config/db.js";
 import { createNotification } from "./notificationController.js";
+import { sendLawyerWelcomeEmail } from "../utils/emailService.js";
+import logger from "../utils/logger.js";
 
 export async function registerFreelancer(req, res){
     const { name, email, phone, experience, expertiseAreas, idCardUrl, barCertificateUrl, additionalDocuments, userId } = req.body;
@@ -13,7 +15,17 @@ export async function registerFreelancer(req, res){
       }
       // Set user role to freelancer
       await sql`UPDATE "user" SET role = 'freelancer' WHERE id = ${userId}`;
-      console.log('Freelancer registered successfully');
+      
+      // Send welcome email
+      try {
+        await sendLawyerWelcomeEmail(email, name);
+        logger.log('Lawyer welcome email sent:', { email, name });
+      } catch (emailError) {
+        logger.error('Error sending lawyer welcome email:', emailError);
+        // Don't fail the registration if email fails
+      }
+      
+      logger.log('Freelancer registered successfully:', { email, name, userId });
       res.status(201).json(freelancer);
     } catch (error) {
       console.error('Error registering freelancer:', error);

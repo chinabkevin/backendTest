@@ -133,24 +133,46 @@ export async function updateUserProfile(req, res) {
     if (!userId) return res.status(400).json({ error: 'Missing userId' });
     
     try {
-        // Get user ID from supabase_id
-        const user = await sql`
-            SELECT id FROM "user" WHERE supabase_id = ${userId}
-        `;
+        let dbUserId;
         
-        if (!user.length) {
-            return res.status(404).json({ error: 'User not found' });
+        // Convert userId to string for checking format
+        const userIdString = String(userId);
+        
+        // Check if userId is a UUID (Supabase ID) or integer (local DB ID)
+        if (userIdString.includes('-')) {
+            // UUID format - check supabase_id
+            const user = await sql`
+                SELECT id FROM "user" WHERE supabase_id = ${userId}
+            `;
+            
+            if (!user.length) {
+                return res.status(404).json({ error: 'User not found' });
+            }
+            
+            dbUserId = user[0].id;
+        } else {
+            // Integer format - use directly
+            dbUserId = parseInt(userIdString);
+            
+            // Verify user exists
+            const user = await sql`
+                SELECT id FROM "user" WHERE id = ${dbUserId}
+            `;
+            
+            if (!user.length) {
+                return res.status(404).json({ error: 'User not found' });
+            }
         }
         
         // Update user profile
         const result = await sql`
             UPDATE "user" 
             SET 
-                name = ${name || null},
-                phone = ${phone || null},
-                address = ${address || null},
+                name = COALESCE(${name || null}, name),
+                phone = COALESCE(${phone || null}, phone),
+                address = COALESCE(${address || null}, address),
                 updated_at = NOW()
-            WHERE id = ${user[0].id}
+            WHERE id = ${dbUserId}
             RETURNING id, email, name, phone, address, profile_image_url, created_at, updated_at
         `;
         
