@@ -305,12 +305,28 @@ export async function getUserDocuments(req, res) {
         console.log('Fetching documents for userId:', userId);
 
         // First, check if the user exists and get their numeric ID
-        const userCheck = await sql`
-            SELECT id, supabase_id FROM "user" 
-            WHERE supabase_id = ${userId}
-        `;
+        // Handle both numeric ID and UUID (supabase_id)
+        let userCheck;
+        const userIdString = String(userId);
+        
+        if (userIdString.includes('-')) {
+            // It's a UUID (supabase_id)
+            console.log('Checking for UUID user:', userIdString);
+            userCheck = await sql`
+                SELECT id, supabase_id FROM "user" 
+                WHERE supabase_id = ${userIdString}
+            `;
+        } else {
+            // It's a numeric ID
+            console.log('Checking for numeric user ID:', userIdString);
+            userCheck = await sql`
+                SELECT id, supabase_id FROM "user" 
+                WHERE id = ${parseInt(userIdString)}
+            `;
+        }
 
         if (!userCheck.length) {
+            console.log('User not found for userId:', userId);
             return res.status(404).json({ error: 'User not found' });
         }
 
