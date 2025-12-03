@@ -12,7 +12,6 @@ const initializeBrevo = () => {
   }
   return apiInstance;
 };
-
 /**
  * Send email using Brevo
  * @param {Object} options - Email options
