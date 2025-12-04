@@ -5,10 +5,14 @@ import {
     uploadCaseDocument, 
     deleteCaseDocument, 
     getDocumentDownloadUrl,
-    getUserDocuments
+    getUserDocuments,
+    generateDocument
 } from '../controllers/documentController.js';
 
 const router = express.Router();
+
+// Generate a document using AI
+router.post('/generate', generateDocument);
 
 // Get all documents for a user
 router.get('/user', getUserDocuments);
