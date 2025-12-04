@@ -305,7 +305,7 @@ export async function getUserDocuments(req, res) {
         console.log('Fetching documents for userId:', userId);
 
         // First, check if the user exists and get their numeric ID
-        // Handle both numeric ID and UUID (supabase_id)
+        // Handle numeric ID, UUID (supabase_id), or email
         let userCheck;
         const userIdString = String(userId);
         
@@ -317,12 +317,27 @@ export async function getUserDocuments(req, res) {
                 WHERE supabase_id = ${userIdString}
             `;
         } else {
-            // It's a numeric ID
-            console.log('Checking for numeric user ID:', userIdString);
-            userCheck = await sql`
-                SELECT id, supabase_id FROM "user" 
-                WHERE id = ${parseInt(userIdString)}
-            `;
+            // Check if it's a valid numeric ID
+            const numericId = parseInt(userIdString, 10);
+            if (!isNaN(numericId) && numericId > 0 && userIdString === String(numericId)) {
+                // It's a valid numeric ID
+                console.log('Checking for numeric user ID:', numericId);
+                userCheck = await sql`
+                    SELECT id, supabase_id FROM "user" 
+                    WHERE id = ${numericId}
+                `;
+            } else if (userIdString.includes('@')) {
+                // It might be an email address
+                console.log('Checking for user by email:', userIdString);
+                userCheck = await sql`
+                    SELECT id, supabase_id FROM "user" 
+                    WHERE email = ${userIdString}
+                `;
+            } else {
+                // Invalid format
+                console.log('Invalid userId format:', userIdString);
+                return res.status(400).json({ error: 'Invalid userId format. Expected numeric ID, UUID, or email address.' });
+            }
         }
 
         if (!userCheck.length) {
@@ -461,10 +476,284 @@ export async function getUserDocuments(req, res) {
         });
     } catch (error) {
         console.error('Error fetching user documents:', error);
-        res.status(500).json({ 
+        res.status(500).json({
             error: 'Failed to fetch user documents',
             details: error.message,
             stack: error.stack
         });
     }
-} 
+}
+
+// Generate document using AI
+async function generateAIResponse(messages, model = 'tngtech/deepseek-r1t2-chimera:free') {
+    try {
+        // Check if API key is configured
+        const apiKey = process.env.OPENROUTER_API_KEY;
+        if (!apiKey) {
+            console.error('OPENROUTER_API_KEY is not set in environment variables');
+            throw new Error('OpenRouter API key is not configured. Please set OPENROUTER_API_KEY in your .env file.');
+        }
+
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json',
+                'HTTP-Referer': process.env.BASE_URL || 'http://localhost:3000',
+                'X-Title': 'AdvoQat Document Generator'
+            },
+            body: JSON.stringify({
+                model: model,
+                messages: messages,
+                max_tokens: 4000,
+                temperature: 0.7,
+                top_p: 0.9
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.text();
+            console.error('OpenRouter API error:', errorData);
+            console.error('Response status:', response.status);
+            console.error('API Key present:', !!apiKey);
+            console.error('API Key length:', apiKey ? apiKey.length : 0);
+            
+            // Provide more specific error message
+            if (response.status === 401) {
+                throw new Error('OpenRouter API authentication failed. Please check your OPENROUTER_API_KEY in .env file.');
+            }
+            throw new Error(`OpenRouter API error: ${errorData}`);
+        }
+
+        const data = await response.json();
+        return {
+            content: data.choices[0].message.content,
+            tokens_used: data.usage?.total_tokens || 0,
+            model_used: model
+        };
+    } catch (error) {
+        console.error('Error generating AI response:', error);
+        throw error; // Re-throw to preserve original error message
+    }
+}
+
+// Generate document prompt based on template
+function getDocumentPrompt(templateId, formData) {
+    const prompts = {
+        'nda': `Generate a professional Non-Disclosure Agreement (NDA) with the following details:
+- Company Name: ${formData.companyName || 'N/A'}
+- Company Jurisdiction: ${formData.companyJurisdiction || 'N/A'}
+- Recipient Name: ${formData.recipientName || 'N/A'}
+- Recipient Email: ${formData.recipientEmail || 'N/A'}
+- Effective Date: ${formData.effectiveDate || 'N/A'}
+- Confidential Information: ${formData.confidentialInfo || 'N/A'}
+- Agreement Duration: ${formData.duration || 'N/A'}
+
+Create a comprehensive, legally sound NDA that includes:
+1. Clear definition of confidential information
+2. Obligations of the receiving party
+3. Exceptions to confidentiality
+4. Term and termination clauses
+5. Return of materials
+6. Governing law clause
+7. Signatures section
+
+Format it professionally with proper legal language and structure.`,
+
+        'employment-contract': `Generate a professional Employment Contract with the following details:
+- Employer Name: ${formData.employerName || 'N/A'}
+- Employer Jurisdiction: ${formData.employerJurisdiction || 'N/A'}
+- Employee Name: ${formData.employeeName || 'N/A'}
+- Job Title: ${formData.jobTitle || 'N/A'}
+- Start Date: ${formData.startDate || 'N/A'}
+- Annual Salary: ${formData.salary || 'N/A'}
+- Work Location: ${formData.workLocation || 'N/A'}
+- Job Description: ${formData.jobDescription || 'N/A'}
+
+Create a comprehensive employment contract that includes:
+1. Position and duties
+2. Compensation and benefits
+3. Work schedule and location
+4. Term of employment
+5. Confidentiality and non-compete clauses
+6. Termination conditions
+7. Governing law
+8. Signatures section
+
+Format it professionally with proper legal language.`,
+
+        'rental-agreement': `Generate a professional Rental/Lease Agreement with the following details:
+- Landlord Name: ${formData.landlordName || 'N/A'}
+- Tenant Name: ${formData.tenantName || 'N/A'}
+- Property Address: ${formData.propertyAddress || 'N/A'}
+- Monthly Rent: ${formData.rentAmount || 'N/A'}
+- Lease Start Date: ${formData.leaseStart || 'N/A'}
+- Lease End Date: ${formData.leaseEnd || 'N/A'}
+- Security Deposit: ${formData.securityDeposit || 'N/A'}
+- Jurisdiction: ${formData.jurisdiction || 'N/A'}
+
+Create a comprehensive rental agreement that includes:
+1. Property description
+2. Term and rent amount
+3. Security deposit terms
+4. Tenant and landlord obligations
+5. Maintenance and repairs
+6. Utilities and services
+7. Default and termination
+8. Governing law
+9. Signatures section
+
+Format it professionally with proper legal language.`,
+
+        'service-agreement': `Generate a professional Service Agreement with the following details:
+- Service Provider: ${formData.serviceProvider || 'N/A'}
+- Provider Jurisdiction: ${formData.providerJurisdiction || 'N/A'}
+- Client Name: ${formData.clientName || 'N/A'}
+- Service Description: ${formData.serviceDescription || 'N/A'}
+- Service Fee: ${formData.serviceFee || 'N/A'}
+- Start Date: ${formData.startDate || 'N/A'}
+- End Date: ${formData.endDate || 'N/A'}
+- Payment Terms: ${formData.paymentTerms || 'N/A'}
+
+Create a comprehensive service agreement that includes:
+1. Services to be provided
+2. Compensation and payment terms
+3. Term and duration
+4. Responsibilities of both parties
+5. Intellectual property rights
+6. Confidentiality
+7. Termination conditions
+8. Governing law
+9. Signatures section
+
+Format it professionally with proper legal language.`
+    };
+
+    return prompts[templateId] || `Generate a professional legal document based on the following form data: ${JSON.stringify(formData, null, 2)}`;
+}
+
+// POST /api/v1/documents/generate - Generate a document
+export async function generateDocument(req, res) {
+    try {
+        const { templateId, formData, userId, paymentSessionId } = req.body;
+
+        if (!templateId || !formData || !userId) {
+            return res.status(400).json({ 
+                error: 'Missing required fields: templateId, formData, and userId are required' 
+            });
+        }
+
+        console.log('Generating document:', { templateId, userId, hasFormData: !!formData });
+
+        // Handle both numeric ID and UUID (supabase_id)
+        let userCheck;
+        const userIdString = String(userId);
+        
+        if (userIdString.includes('-')) {
+            // It's a UUID (supabase_id)
+            userCheck = await sql`
+                SELECT id FROM "user" 
+                WHERE supabase_id = ${userIdString}
+            `;
+        } else {
+            // It's a numeric ID
+            const numericId = parseInt(userIdString, 10);
+            if (!isNaN(numericId) && numericId > 0 && userIdString === String(numericId)) {
+                userCheck = await sql`
+                    SELECT id FROM "user" 
+                    WHERE id = ${numericId}
+                `;
+            } else {
+                return res.status(400).json({ error: 'Invalid userId format' });
+            }
+        }
+        
+        if (!userCheck.length) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        const numericUserId = userCheck[0].id;
+
+        // Get template name
+        const templateNames = {
+            'nda': 'Non-Disclosure Agreement',
+            'employment-contract': 'Employment Contract',
+            'rental-agreement': 'Rental Agreement',
+            'service-agreement': 'Service Agreement'
+        };
+        const templateName = templateNames[templateId] || templateId;
+
+        // Generate document using AI
+        const prompt = getDocumentPrompt(templateId, formData);
+        const messages = [
+            {
+                role: 'system',
+                content: 'You are a professional legal document generator. Generate comprehensive, legally sound documents with proper structure, formatting, and legal language. Include all necessary clauses and sections.'
+            },
+            {
+                role: 'user',
+                content: prompt
+            }
+        ];
+
+        let generatedDocument;
+        try {
+            const aiResponse = await generateAIResponse(messages);
+            generatedDocument = aiResponse.content;
+        } catch (aiError) {
+            console.error('AI generation failed:', aiError);
+            // Return a more user-friendly error
+            return res.status(500).json({
+                error: 'Failed to generate document',
+                details: aiError.message || 'AI service is currently unavailable. Please check your OpenRouter API key configuration.',
+                suggestion: 'Please ensure OPENROUTER_API_KEY is set in your backend .env file'
+            });
+        }
+
+        // Save document immediately (with pending payment status if no paymentSessionId)
+        const paymentStatus = paymentSessionId ? 'paid' : 'pending';
+        const [document] = await sql`
+            INSERT INTO documents (
+                user_id,
+                template_id,
+                template_name,
+                form_data,
+                generated_document,
+                document_type,
+                document_fee,
+                payment_status,
+                payment_session_id,
+                status
+            )
+            VALUES (
+                ${numericUserId},
+                ${templateId},
+                ${templateName},
+                ${JSON.stringify(formData)},
+                ${generatedDocument},
+                ${templateId},
+                0, -- Default fee, can be updated later
+                ${paymentStatus},
+                ${paymentSessionId || null},
+                'active'
+            )
+            RETURNING *
+        `;
+
+        return res.json({
+            success: true,
+            document: generatedDocument,
+            documentId: document.id,
+            templateId,
+            templateName,
+            paymentStatus: paymentStatus,
+            generatedAt: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error('Error generating document:', error);
+        res.status(500).json({ 
+            error: 'Failed to generate document',
+            details: error.message 
+        });
+    }
+}

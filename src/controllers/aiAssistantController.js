@@ -31,7 +31,7 @@ DISCLAIMER: Always include this disclaimer in your responses:
 Format your responses professionally and clearly.`;
 
 // Generate AI response using OpenRouter
-async function generateAIResponse(messages, model = 'deepseek/deepseek-r1:free') {
+async function generateAIResponse(messages, model = 'tngtech/deepseek-r1t2-chimera:free') {
   try {
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -86,14 +86,34 @@ export const sendMessage = async (req, res) => {
       return res.status(400).json({ error: 'Message and userId are required' });
     }
 
-    // Get user ID from supabase_id
-    const user = await sql`
-      SELECT id FROM "user" WHERE supabase_id = ${userId}
-    `;
+    // Handle both numeric ID and UUID (supabase_id)
+    let userCheck;
+    const userIdString = String(userId);
     
-    if (user.length === 0) {
+    if (userIdString.includes('-')) {
+      // It's a UUID (supabase_id)
+      userCheck = await sql`
+        SELECT id FROM "user" 
+        WHERE supabase_id = ${userIdString}
+      `;
+    } else {
+      // It's a numeric ID
+      const numericId = parseInt(userIdString, 10);
+      if (!isNaN(numericId) && numericId > 0 && userIdString === String(numericId)) {
+        userCheck = await sql`
+          SELECT id FROM "user" 
+          WHERE id = ${numericId}
+        `;
+      } else {
+        return res.status(400).json({ error: 'Invalid userId format' });
+      }
+    }
+    
+    if (!userCheck.length) {
       return res.status(404).json({ error: 'User not found' });
     }
+    
+    const user = [{ id: userCheck[0].id }];
 
     let session;
     
@@ -170,14 +190,48 @@ export const getUserSessions = async (req, res) => {
       return res.status(400).json({ error: 'User ID is required' });
     }
     
-    // Get user ID from supabase_id
-    const user = await sql`
-      SELECT id FROM "user" WHERE supabase_id = ${userId}
-    `;
+    console.log('Fetching sessions for userId:', userId);
     
-    if (user.length === 0) {
+    // Handle both numeric ID and UUID (supabase_id)
+    let userCheck;
+    const userIdString = String(userId);
+    
+    if (userIdString.includes('-')) {
+      // It's a UUID (supabase_id)
+      console.log('Checking for UUID user:', userIdString);
+      userCheck = await sql`
+        SELECT id, supabase_id FROM "user" 
+        WHERE supabase_id = ${userIdString}
+      `;
+    } else {
+      // It's a numeric ID
+      console.log('Checking for numeric user ID:', userIdString);
+      const numericId = parseInt(userIdString, 10);
+      if (!isNaN(numericId) && numericId > 0 && userIdString === String(numericId)) {
+        userCheck = await sql`
+          SELECT id, supabase_id FROM "user" 
+          WHERE id = ${numericId}
+        `;
+      } else if (userIdString.includes('@')) {
+        // It might be an email address
+        console.log('Checking for user by email:', userIdString);
+        userCheck = await sql`
+          SELECT id, supabase_id FROM "user" 
+          WHERE email = ${userIdString}
+        `;
+      } else {
+        console.log('Invalid userId format:', userIdString);
+        return res.status(400).json({ error: 'Invalid userId format. Expected numeric ID, UUID, or email address.' });
+      }
+    }
+    
+    if (!userCheck.length) {
+      console.log('User not found for userId:', userId);
       return res.status(404).json({ error: 'User not found' });
     }
+    
+    const numericUserId = userCheck[0].id;
+    console.log('Found user with numeric ID:', numericUserId);
     
     const sessions = await sql`
       SELECT 
@@ -191,10 +245,12 @@ export const getUserSessions = async (req, res) => {
         MAX(cm.created_at) as last_message_at
       FROM chat_sessions cs
       LEFT JOIN chat_messages cm ON cs.id = cm.session_id
-      WHERE cs.user_id = ${user[0].id} AND cs.status != 'deleted'
+      WHERE cs.user_id = ${numericUserId} AND cs.status != 'deleted'
       GROUP BY cs.id, cs.title, cs.category, cs.status, cs.created_at, cs.updated_at
       ORDER BY cs.updated_at DESC
     `;
+    
+    console.log('Found sessions:', sessions.length);
     
     res.json({
       success: true,
@@ -216,14 +272,34 @@ export const getSession = async (req, res) => {
       return res.status(400).json({ error: 'User ID is required' });
     }
     
-    // Get user ID from supabase_id
-    const user = await sql`
-      SELECT id FROM "user" WHERE supabase_id = ${userId}
-    `;
+    // Handle both numeric ID and UUID (supabase_id)
+    let userCheck;
+    const userIdString = String(userId);
     
-    if (user.length === 0) {
+    if (userIdString.includes('-')) {
+      // It's a UUID (supabase_id)
+      userCheck = await sql`
+        SELECT id FROM "user" 
+        WHERE supabase_id = ${userIdString}
+      `;
+    } else {
+      // It's a numeric ID
+      const numericId = parseInt(userIdString, 10);
+      if (!isNaN(numericId) && numericId > 0 && userIdString === String(numericId)) {
+        userCheck = await sql`
+          SELECT id FROM "user" 
+          WHERE id = ${numericId}
+        `;
+      } else {
+        return res.status(400).json({ error: 'Invalid userId format' });
+      }
+    }
+    
+    if (!userCheck.length) {
       return res.status(404).json({ error: 'User not found' });
     }
+    
+    const user = [{ id: userCheck[0].id }];
     
     // Get session details
     const sessions = await sql`
@@ -265,14 +341,34 @@ export const deleteSession = async (req, res) => {
       return res.status(400).json({ error: 'User ID is required' });
     }
     
-    // Get user ID from supabase_id
-    const user = await sql`
-      SELECT id FROM "user" WHERE supabase_id = ${userId}
-    `;
+    // Handle both numeric ID and UUID (supabase_id)
+    let userCheck;
+    const userIdString = String(userId);
     
-    if (user.length === 0) {
+    if (userIdString.includes('-')) {
+      // It's a UUID (supabase_id)
+      userCheck = await sql`
+        SELECT id FROM "user" 
+        WHERE supabase_id = ${userIdString}
+      `;
+    } else {
+      // It's a numeric ID
+      const numericId = parseInt(userIdString, 10);
+      if (!isNaN(numericId) && numericId > 0 && userIdString === String(numericId)) {
+        userCheck = await sql`
+          SELECT id FROM "user" 
+          WHERE id = ${numericId}
+        `;
+      } else {
+        return res.status(400).json({ error: 'Invalid userId format' });
+      }
+    }
+    
+    if (!userCheck.length) {
       return res.status(404).json({ error: 'User not found' });
     }
+    
+    const user = [{ id: userCheck[0].id }];
     
     const result = await sql`
       UPDATE chat_sessions 
@@ -305,14 +401,34 @@ export const updateSessionTitle = async (req, res) => {
       return res.status(400).json({ error: 'User ID and title are required' });
     }
     
-    // Get user ID from supabase_id
-    const user = await sql`
-      SELECT id FROM "user" WHERE supabase_id = ${userId}
-    `;
+    // Handle both numeric ID and UUID (supabase_id)
+    let userCheck;
+    const userIdString = String(userId);
     
-    if (user.length === 0) {
+    if (userIdString.includes('-')) {
+      // It's a UUID (supabase_id)
+      userCheck = await sql`
+        SELECT id FROM "user" 
+        WHERE supabase_id = ${userIdString}
+      `;
+    } else {
+      // It's a numeric ID
+      const numericId = parseInt(userIdString, 10);
+      if (!isNaN(numericId) && numericId > 0 && userIdString === String(numericId)) {
+        userCheck = await sql`
+          SELECT id FROM "user" 
+          WHERE id = ${numericId}
+        `;
+      } else {
+        return res.status(400).json({ error: 'Invalid userId format' });
+      }
+    }
+    
+    if (!userCheck.length) {
       return res.status(404).json({ error: 'User not found' });
     }
+    
+    const user = [{ id: userCheck[0].id }];
     
     const result = await sql`
       UPDATE chat_sessions 
@@ -340,9 +456,9 @@ export const getAvailableModels = async (req, res) => {
   try {
     const models = [
       {
-        id: 'deepseek/deepseek-r1:free',
-        name: 'DeepSeek R1 (Free)',
-        description: 'High-performance model with reasoning capabilities',
+        id: 'tngtech/deepseek-r1t2-chimera:free',
+        name: 'DeepSeek R1T2 Chimera (Free)',
+        description: 'High-performance model with reasoning capabilities - faster and more efficient',
         maxTokens: 4000,
         pricing: 'Free'
       },
@@ -375,20 +491,40 @@ export const getAvailableModels = async (req, res) => {
 // POST /api/v1/ai/chat/stream - Stream chat response (for real-time updates)
 export const streamChat = async (req, res) => {
   try {
-    const { sessionId, message, userId, model = 'deepseek/deepseek-r1:free' } = req.body;
+    const { sessionId, message, userId, model = 'tngtech/deepseek-r1t2-chimera:free' } = req.body;
     
     if (!message || !userId) {
       return res.status(400).json({ error: 'Message and userId are required' });
     }
 
-    // Get user ID from supabase_id
-    const user = await sql`
-      SELECT id FROM "user" WHERE supabase_id = ${userId}
-    `;
+    // Handle both numeric ID and UUID (supabase_id)
+    let userCheck;
+    const userIdString = String(userId);
     
-    if (user.length === 0) {
+    if (userIdString.includes('-')) {
+      // It's a UUID (supabase_id)
+      userCheck = await sql`
+        SELECT id FROM "user" 
+        WHERE supabase_id = ${userIdString}
+      `;
+    } else {
+      // It's a numeric ID
+      const numericId = parseInt(userIdString, 10);
+      if (!isNaN(numericId) && numericId > 0 && userIdString === String(numericId)) {
+        userCheck = await sql`
+          SELECT id FROM "user" 
+          WHERE id = ${numericId}
+        `;
+      } else {
+        return res.status(400).json({ error: 'Invalid userId format' });
+      }
+    }
+    
+    if (!userCheck.length) {
       return res.status(404).json({ error: 'User not found' });
     }
+    
+    const user = [{ id: userCheck[0].id }];
 
     // Set headers for streaming
     res.setHeader('Content-Type', 'text/plain');
@@ -423,14 +559,34 @@ export const uploadDocuments = async (req, res) => {
       return res.status(400).json({ error: 'UserId is required' });
     }
 
-    // Get user ID from supabase_id
-    const user = await sql`
-      SELECT id FROM "user" WHERE supabase_id = ${userId}
-    `;
+    // Handle both numeric ID and UUID (supabase_id)
+    let userCheck;
+    const userIdString = String(userId);
     
-    if (user.length === 0) {
+    if (userIdString.includes('-')) {
+      // It's a UUID (supabase_id)
+      userCheck = await sql`
+        SELECT id FROM "user" 
+        WHERE supabase_id = ${userIdString}
+      `;
+    } else {
+      // It's a numeric ID
+      const numericId = parseInt(userIdString, 10);
+      if (!isNaN(numericId) && numericId > 0 && userIdString === String(numericId)) {
+        userCheck = await sql`
+          SELECT id FROM "user" 
+          WHERE id = ${numericId}
+        `;
+      } else {
+        return res.status(400).json({ error: 'Invalid userId format' });
+      }
+    }
+    
+    if (!userCheck.length) {
       return res.status(404).json({ error: 'User not found' });
     }
+    
+    const user = [{ id: userCheck[0].id }];
 
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: 'No files uploaded' });
@@ -492,14 +648,34 @@ export const getSessionDocumentsController = async (req, res) => {
       return res.status(400).json({ error: 'UserId is required' });
     }
 
-    // Get user ID from supabase_id
-    const user = await sql`
-      SELECT id FROM "user" WHERE supabase_id = ${userId}
-    `;
+    // Handle both numeric ID and UUID (supabase_id)
+    let userCheck;
+    const userIdString = String(userId);
     
-    if (user.length === 0) {
+    if (userIdString.includes('-')) {
+      // It's a UUID (supabase_id)
+      userCheck = await sql`
+        SELECT id FROM "user" 
+        WHERE supabase_id = ${userIdString}
+      `;
+    } else {
+      // It's a numeric ID
+      const numericId = parseInt(userIdString, 10);
+      if (!isNaN(numericId) && numericId > 0 && userIdString === String(numericId)) {
+        userCheck = await sql`
+          SELECT id FROM "user" 
+          WHERE id = ${numericId}
+        `;
+      } else {
+        return res.status(400).json({ error: 'Invalid userId format' });
+      }
+    }
+    
+    if (!userCheck.length) {
       return res.status(404).json({ error: 'User not found' });
     }
+    
+    const user = [{ id: userCheck[0].id }];
 
     const documents = await getSessionDocuments(sessionId);
 
@@ -523,14 +699,34 @@ export const deleteDocumentController = async (req, res) => {
       return res.status(400).json({ error: 'UserId is required' });
     }
 
-    // Get user ID from supabase_id
-    const user = await sql`
-      SELECT id FROM "user" WHERE supabase_id = ${userId}
-    `;
+    // Handle both numeric ID and UUID (supabase_id)
+    let userCheck;
+    const userIdString = String(userId);
     
-    if (user.length === 0) {
+    if (userIdString.includes('-')) {
+      // It's a UUID (supabase_id)
+      userCheck = await sql`
+        SELECT id FROM "user" 
+        WHERE supabase_id = ${userIdString}
+      `;
+    } else {
+      // It's a numeric ID
+      const numericId = parseInt(userIdString, 10);
+      if (!isNaN(numericId) && numericId > 0 && userIdString === String(numericId)) {
+        userCheck = await sql`
+          SELECT id FROM "user" 
+          WHERE id = ${numericId}
+        `;
+      } else {
+        return res.status(400).json({ error: 'Invalid userId format' });
+      }
+    }
+    
+    if (!userCheck.length) {
       return res.status(404).json({ error: 'User not found' });
     }
+    
+    const user = [{ id: userCheck[0].id }];
 
     const deleted = await deleteDocument(documentId, user[0].id);
 
