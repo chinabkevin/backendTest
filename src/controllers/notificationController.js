@@ -148,9 +148,20 @@ export async function createNotificationEndpoint(req, res) {
 // Create a new notification (utility function for other controllers)
 export async function createNotification(userId, type, title, message, data = {}) {
     try {
-        // Handle both Supabase UUID and numeric database ID
+        // Handle email addresses, UUIDs, and numeric database IDs
         let dbUserId = userId;
-        if (userId.includes('-')) { // This is a Supabase UUID
+        
+        // Check if it's an email address
+        if (userId && userId.includes('@')) {
+            const user = await sql`
+                SELECT id FROM "user" WHERE email = ${userId}
+            `;
+            if (user.length === 0) {
+                console.log('User not found for email:', userId);
+                return null;
+            }
+            dbUserId = user[0].id;
+        } else if (userId && userId.includes('-')) { // This is a Supabase UUID
             const user = await sql`
                 SELECT id FROM "user" WHERE supabase_id = ${userId}
             `;
@@ -159,6 +170,14 @@ export async function createNotification(userId, type, title, message, data = {}
                 return null;
             }
             dbUserId = user[0].id;
+        } else {
+            // Assume it's a numeric ID, but validate it
+            const numericId = parseInt(userId);
+            if (isNaN(numericId)) {
+                console.log('Invalid user ID format:', userId);
+                return null;
+            }
+            dbUserId = numericId;
         }
         
         const notification = await sql`

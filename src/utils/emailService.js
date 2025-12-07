@@ -1,6 +1,6 @@
 import * as brevo from '@getbrevo/brevo';
 import logger from './logger.js';
-import { loadTemplate } from './emailTemplates/templateLoader.js';
+import { loadTemplate, loadBaseTemplate } from './emailTemplates/templateLoader.js';
 
 // Initialize Brevo API client
 let apiInstance = null;
@@ -148,6 +148,124 @@ export const sendLawyerWelcomeEmail = async (email, name) => {
     return {
       success: false,
       error: error.message || 'Failed to send welcome email'
+    };
+  }
+};
+
+/**
+ * Send case accepted email notification
+ * @param {string} email - Recipient email
+ * @param {string} name - Recipient name
+ * @param {string} caseTitle - Case title
+ * @returns {Promise<Object>} - Email sending result
+ */
+export const sendCaseAcceptedEmail = async (email, name, caseTitle) => {
+  try {
+    const subject = 'Case Accepted - Your Case is Now Active';
+    // Load the content template and wrap it in base template
+    const content = await loadTemplate('caseAccepted', {
+      name: name || 'Client',
+      caseTitle: caseTitle || 'Your case'
+    });
+    const htmlContent = await loadBaseTemplate(content, {
+      name: name || 'Client'
+    });
+
+    return await sendEmail({
+      to: email,
+      subject,
+      htmlContent
+    });
+  } catch (error) {
+    logger.error('Error sending case accepted email:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to send case accepted email'
+    };
+  }
+};
+
+/**
+ * Send case declined email notification
+ * @param {string} email - Recipient email
+ * @param {string} name - Recipient name
+ * @param {string} caseTitle - Case title
+ * @returns {Promise<Object>} - Email sending result
+ */
+export const sendCaseDeclinedEmail = async (email, name, caseTitle) => {
+  try {
+    const subject = 'Case Update - Case Declined';
+    // Load the content template and wrap it in base template
+    const content = await loadTemplate('caseDeclined', {
+      name: name || 'Client',
+      caseTitle: caseTitle || 'Your case'
+    });
+    const htmlContent = await loadBaseTemplate(content, {
+      name: name || 'Client'
+    });
+
+    return await sendEmail({
+      to: email,
+      subject,
+      htmlContent
+    });
+  } catch (error) {
+    logger.error('Error sending case declined email:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to send case declined email'
+    };
+  }
+};
+
+/**
+ * Send case assigned email notification to lawyer/freelancer
+ * @param {string} email - Recipient email
+ * @param {string} name - Recipient name
+ * @param {string} caseTitle - Case title
+ * @param {Object} caseDetails - Additional case details (expertiseArea, priority, jurisdiction)
+ * @returns {Promise<Object>} - Email sending result
+ */
+export const sendCaseAssignedEmail = async (email, name, caseTitle, caseDetails = {}) => {
+  try {
+    const subject = 'New Case Assigned - Action Required';
+    
+    // Build case details HTML
+    let caseDetailsHtml = `<li><strong>Case Title:</strong> ${caseTitle || 'N/A'}</li>`;
+    if (caseDetails.expertiseArea) {
+      caseDetailsHtml += `<li><strong>Expertise Area:</strong> ${caseDetails.expertiseArea}</li>`;
+    }
+    if (caseDetails.priority) {
+      caseDetailsHtml += `<li><strong>Priority:</strong> ${caseDetails.priority}</li>`;
+    }
+    if (caseDetails.jurisdiction) {
+      caseDetailsHtml += `<li><strong>Jurisdiction:</strong> ${caseDetails.jurisdiction}</li>`;
+    }
+    
+    // Load the content template and replace variables
+    let content = await loadTemplate('caseAssigned', {
+      name: name || 'Lawyer',
+      caseTitle: caseTitle || 'New Case',
+      expertiseArea: caseDetails.expertiseArea ? `<li><strong>Expertise Area:</strong> ${caseDetails.expertiseArea}</li>` : '',
+      priority: caseDetails.priority ? `<li><strong>Priority:</strong> ${caseDetails.priority}</li>` : '',
+      jurisdiction: caseDetails.jurisdiction ? `<li><strong>Jurisdiction:</strong> ${caseDetails.jurisdiction}</li>` : ''
+    });
+    
+    // Wrap in base template
+    const htmlContent = await loadBaseTemplate(content, {
+      name: name || 'Lawyer'
+    });
+
+    return await sendEmail({
+      to: email,
+      subject,
+      htmlContent
+    });
+  } catch (error) {
+    logger.error('Error sending case assigned email:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to send case assigned email'
     };
   }
 };

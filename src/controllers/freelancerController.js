@@ -1,6 +1,6 @@
 import { sql } from "../config/db.js";
 import { createNotification } from "./notificationController.js";
-import { sendLawyerWelcomeEmail } from "../utils/emailService.js";
+import { sendLawyerWelcomeEmail, sendCaseAcceptedEmail, sendCaseDeclinedEmail } from "../utils/emailService.js";
 import logger from "../utils/logger.js";
 
 export async function registerFreelancer(req, res){
@@ -386,7 +386,22 @@ export async function listFreelancerCases(req, res) {
             console.log('Using numeric user ID:', dbUserId);
         }
         
-        const cases = await sql`SELECT * FROM "case" WHERE freelancer_id = ${dbUserId} ORDER BY created_at DESC`;
+        const cases = await sql`
+            SELECT 
+                c.*,
+                u.name as client_name,
+                u.email as client_email,
+                CASE 
+                    WHEN c.assigned_at IS NULL THEN 'direct'
+                    WHEN c.assigned_at::date = c.created_at::date AND 
+                         EXTRACT(EPOCH FROM (c.assigned_at - c.created_at)) < 60 THEN 'direct'
+                    ELSE 'assigned'
+                END as case_source
+            FROM "case" c
+            LEFT JOIN "user" u ON c.client_id = u.id
+            WHERE c.freelancer_id = ${dbUserId} 
+            ORDER BY c.created_at DESC
+        `;
         res.json(cases);
     } catch (error) {
         console.error('Error listing cases:', error);
@@ -422,7 +437,16 @@ export async function getFreelancerCaseById(req, res) {
         
         // First check if the case belongs to this freelancer
         const caseData = await sql`
-            SELECT c.*, u.name as client_name, u.email as client_email 
+            SELECT 
+                c.*, 
+                u.name as client_name, 
+                u.email as client_email,
+                CASE 
+                    WHEN c.assigned_at IS NULL THEN 'direct'
+                    WHEN c.assigned_at::date = c.created_at::date AND 
+                         EXTRACT(EPOCH FROM (c.assigned_at - c.created_at)) < 60 THEN 'direct'
+                    ELSE 'assigned'
+                END as case_source
             FROM "case" c 
             JOIN "user" u ON c.client_id = u.id 
             WHERE c.id = ${caseId} AND c.freelancer_id = ${dbUserId}
@@ -444,7 +468,7 @@ export async function acceptCase(req, res) {
     try {
         // Get case details first
         const caseData = await sql`
-            SELECT c.*, u.name as client_name, u.email as client_email 
+            SELECT c.*, u.name as client_name, u.email as client_email, u.supabase_id as client_supabase_id
             FROM "case" c 
             JOIN "user" u ON c.client_id = u.id 
             WHERE c.id = ${caseId}
@@ -458,14 +482,35 @@ export async function acceptCase(req, res) {
         const updated = await sql`UPDATE "case" SET status = 'active', accepted_at = NOW() WHERE id = ${caseId} RETURNING *`;
         if (!updated.length) return res.status(404).json({ error: 'Case not found' });
         
-        // Create notification for the client
-        await createNotification(
-            caseItem.client_id,
-            'case_accepted',
-            'Case Accepted',
-            `Your case "${caseItem.title}" has been accepted by the lawyer and is now active.`,
-            { case_id: caseId, case_title: caseItem.title }
-        );
+        // Create app notification for the client
+        try {
+            const notificationUserId = caseItem.client_supabase_id || caseItem.client_id;
+            await createNotification(
+                notificationUserId,
+                'case_accepted',
+                'Case Accepted',
+                `Your case "${caseItem.title}" has been accepted by the lawyer and is now active.`,
+                { case_id: parseInt(caseId), case_title: caseItem.title }
+            );
+        } catch (notificationError) {
+            logger.error('Error creating notification for case acceptance:', notificationError);
+            // Continue even if notification fails
+        }
+        
+        // Send email notification to the client
+        if (caseItem.client_email) {
+            try {
+                await sendCaseAcceptedEmail(
+                    caseItem.client_email,
+                    caseItem.client_name || 'Client',
+                    caseItem.title
+                );
+                logger.log('Case accepted email sent to client:', { email: caseItem.client_email, caseId });
+            } catch (emailError) {
+                logger.error('Error sending case accepted email:', emailError);
+                // Continue even if email fails
+            }
+        }
         
         res.json(updated[0]);
     } catch (error) {
@@ -477,8 +522,52 @@ export async function acceptCase(req, res) {
 export async function declineCase(req, res) {
     const { caseId } = req.params;
     try {
+        // Get case details first to get client information
+        const caseData = await sql`
+            SELECT c.*, u.name as client_name, u.email as client_email, u.supabase_id as client_supabase_id
+            FROM "case" c 
+            JOIN "user" u ON c.client_id = u.id 
+            WHERE c.id = ${caseId}
+        `;
+        
+        if (!caseData.length) return res.status(404).json({ error: 'Case not found' });
+        
+        const caseItem = caseData[0];
+        
+        // Update case status
         const updated = await sql`UPDATE "case" SET status = 'declined', declined_at = NOW() WHERE id = ${caseId} RETURNING *`;
         if (!updated.length) return res.status(404).json({ error: 'Case not found' });
+        
+        // Create app notification for the client
+        try {
+            const notificationUserId = caseItem.client_supabase_id || caseItem.client_id;
+            await createNotification(
+                notificationUserId,
+                'case_declined',
+                'Case Declined',
+                `Your case "${caseItem.title}" has been declined by the lawyer.`,
+                { case_id: parseInt(caseId), case_title: caseItem.title }
+            );
+        } catch (notificationError) {
+            logger.error('Error creating notification for case decline:', notificationError);
+            // Continue even if notification fails
+        }
+        
+        // Send email notification to the client
+        if (caseItem.client_email) {
+            try {
+                await sendCaseDeclinedEmail(
+                    caseItem.client_email,
+                    caseItem.client_name || 'Client',
+                    caseItem.title
+                );
+                logger.log('Case declined email sent to client:', { email: caseItem.client_email, caseId });
+            } catch (emailError) {
+                logger.error('Error sending case declined email:', emailError);
+                // Continue even if email fails
+            }
+        }
+        
         res.json(updated[0]);
     } catch (error) {
         console.error('Error declining case:', error);
