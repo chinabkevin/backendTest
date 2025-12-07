@@ -16,7 +16,9 @@ import {
     referCase,
     getLawyerReferrals,
     respondToReferral,
-    getBarristerReferrals
+    getBarristerReferrals,
+    acceptBarristerCase,
+    rejectBarristerCase
 } from '../controllers/caseController.js';
 import { userExists } from '../middleware/userExists.js';
 import { upload } from '../utils/fileUpload.js';
@@ -57,6 +59,8 @@ router.patch('/referrals/:referralId/respond', respondToReferral);
 
 // Case assignment and status updates (must come before /:caseId)
 router.post('/assign/:caseId', assignCaseToFreelancer);
+router.post('/:caseId/barrister/accept', acceptBarristerCase);
+router.post('/:caseId/barrister/reject', rejectBarristerCase);
 router.patch('/:caseId/status', updateCaseStatus);
 router.patch('/:caseId/document', updateCaseDocument);
 

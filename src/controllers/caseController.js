@@ -1,6 +1,8 @@
 import { sql } from "../config/db.js";
 import { uploadCaseDocument, validateDocumentFile } from "../utils/fileUpload.js";
 import { createNotification } from "./notificationController.js";
+import { sendCaseAssignedEmail, sendCaseAcceptedEmail, sendCaseDeclinedEmail } from "../utils/emailService.js";
+import logger from "../utils/logger.js";
 
 export async function registerCase(req, res) {
     const { 
@@ -43,13 +45,18 @@ export async function registerCase(req, res) {
         }
 
         // If specific freelancer is requested, validate and assign
+        let assignedFreelancer = null;
         if (freelancerId) {
             const freelancer = await sql`
-                SELECT * FROM freelancer WHERE user_id = ${freelancerId} AND is_available = true
+                SELECT f.*, u.supabase_id, u.name, u.email 
+                FROM freelancer f
+                JOIN "user" u ON f.user_id = u.id
+                WHERE f.user_id = ${freelancerId} AND f.is_available = true
             `;
             if (freelancer.length > 0) {
                 assignedFreelancerId = freelancerId;
                 assignedAt = 'NOW()';
+                assignedFreelancer = freelancer[0];
             } else {
                 return res.status(400).json({ error: 'Requested lawyer is not available or does not exist' });
             }
@@ -224,6 +231,48 @@ export async function registerCase(req, res) {
             // Don't fail the case creation if notifications fail
         }
         
+        // If case was directly assigned to a freelancer, send notifications
+        if (assignedFreelancer && assignedFreelancerId) {
+            try {
+                // Send app notification
+                await createNotification(
+                    assignedFreelancer.supabase_id,
+                    'case_assigned',
+                    'Case Assigned',
+                    `You have been assigned to case "${title}"`,
+                    {
+                        case_id: newCase[0].id,
+                        case_title: title,
+                        expertise_area: expertiseArea,
+                        priority: priority || 'medium',
+                        jurisdiction: jurisdiction,
+                        assignee_type: 'lawyer'
+                    }
+                );
+                
+                // Send email notification
+                if (assignedFreelancer.email) {
+                    await sendCaseAssignedEmail(
+                        assignedFreelancer.email,
+                        assignedFreelancer.name || 'Lawyer',
+                        title,
+                        {
+                            expertiseArea: expertiseArea,
+                            priority: priority || 'medium',
+                            jurisdiction: jurisdiction
+                        }
+                    );
+                    logger.log('Case assigned email sent to freelancer:', { 
+                        email: assignedFreelancer.email, 
+                        caseId: newCase[0].id 
+                    });
+                }
+            } catch (notificationError) {
+                logger.error('Error sending notifications to assigned freelancer:', notificationError);
+                // Don't fail the case creation if notifications fail
+            }
+        }
+        
         res.status(201).json({
             success: true,
             case: { ...newCase[0], case_summary_url: caseSummaryUrl },
@@ -292,7 +341,13 @@ export async function getFreelancerCases(req, res) {
             SELECT 
                 c.*,
                 u.name as client_name,
-                u.email as client_email
+                u.email as client_email,
+                CASE 
+                    WHEN c.assigned_at IS NULL THEN 'direct'
+                    WHEN c.assigned_at::date = c.created_at::date AND 
+                         EXTRACT(EPOCH FROM (c.assigned_at - c.created_at)) < 60 THEN 'direct'
+                    ELSE 'assigned'
+                END as case_source
             FROM "case" c
             LEFT JOIN "user" u ON c.client_id = u.id
             WHERE c.freelancer_id = ${actualFreelancerId}
@@ -332,7 +387,13 @@ export async function getBarristerCases(req, res) {
             SELECT 
                 c.*,
                 u.name as client_name,
-                u.email as client_email
+                u.email as client_email,
+                CASE 
+                    WHEN c.assigned_at IS NULL THEN 'direct'
+                    WHEN c.assigned_at::date = c.created_at::date AND 
+                         EXTRACT(EPOCH FROM (c.assigned_at - c.created_at)) < 60 THEN 'direct'
+                    ELSE 'assigned'
+                END as case_source
             FROM "case" c
             LEFT JOIN "user" u ON c.client_id = u.id
             WHERE c.barrister_id = ${actualBarristerId}
@@ -460,7 +521,7 @@ export async function assignCaseToFreelancer(req, res) {
                 RETURNING *
             `;
             
-            // Send notification to freelancer
+            // Send app notification to freelancer
             try {
                 await createNotification(
                     assignedUserId,
@@ -474,8 +535,31 @@ export async function assignCaseToFreelancer(req, res) {
                     }
                 );
             } catch (notificationError) {
-                console.error('Error sending notification:', notificationError);
+                logger.error('Error sending app notification:', notificationError);
                 // Don't fail the assignment if notification fails
+            }
+            
+            // Send email notification to freelancer
+            if (assignedEmail) {
+                try {
+                    await sendCaseAssignedEmail(
+                        assignedEmail,
+                        assignedName || 'Lawyer',
+                        caseRecord[0].title,
+                        {
+                            expertiseArea: caseRecord[0].expertise_area,
+                            priority: caseRecord[0].priority,
+                            jurisdiction: caseRecord[0].jurisdiction
+                        }
+                    );
+                    logger.log('Case assigned email sent to freelancer:', { 
+                        email: assignedEmail, 
+                        caseId 
+                    });
+                } catch (emailError) {
+                    logger.error('Error sending case assigned email:', emailError);
+                    // Don't fail the assignment if email fails
+                }
             }
 
             return res.json({
@@ -512,7 +596,7 @@ export async function assignCaseToFreelancer(req, res) {
                 RETURNING *
             `;
             
-            // Send notification to barrister
+            // Send app notification to barrister
             try {
                 await createNotification(
                     assignedUserId,
@@ -526,8 +610,31 @@ export async function assignCaseToFreelancer(req, res) {
                     }
                 );
             } catch (notificationError) {
-                console.error('Error sending notification:', notificationError);
+                logger.error('Error sending app notification to barrister:', notificationError);
                 // Don't fail the assignment if notification fails
+            }
+            
+            // Send email notification to barrister
+            if (assignedEmail) {
+                try {
+                    await sendCaseAssignedEmail(
+                        assignedEmail,
+                        assignedName || 'Barrister',
+                        caseRecord[0].title,
+                        {
+                            expertiseArea: caseRecord[0].expertise_area,
+                            priority: caseRecord[0].priority,
+                            jurisdiction: caseRecord[0].jurisdiction
+                        }
+                    );
+                    logger.log('Case assigned email sent to barrister:', { 
+                        email: assignedEmail, 
+                        caseId 
+                    });
+                } catch (emailError) {
+                    logger.error('Error sending case assigned email to barrister:', emailError);
+                    // Don't fail the assignment if email fails
+                }
             }
 
             return res.json({
@@ -550,6 +657,21 @@ export async function updateCaseStatus(req, res) {
         if (!status || !['pending', 'active', 'completed', 'declined'].includes(status)) {
             return res.status(400).json({ error: 'Invalid status' });
         }
+        
+        // Get case details first to get client information for notifications
+        const caseData = await sql`
+            SELECT c.*, u.name as client_name, u.email as client_email, u.supabase_id as client_supabase_id
+            FROM "case" c 
+            JOIN "user" u ON c.client_id = u.id 
+            WHERE c.id = ${caseId}
+        `;
+        
+        if (!caseData.length) {
+            return res.status(404).json({ error: 'Case not found' });
+        }
+        
+        const caseItem = caseData[0];
+        const oldStatus = caseItem.status;
         
         // Start with basic update
         let updateQuery = sql`
@@ -593,6 +715,58 @@ export async function updateCaseStatus(req, res) {
         const updated = await updateQuery;
         
         if (!updated.length) return res.status(404).json({ error: 'Case not found' });
+        
+        // Send notifications if status changed to 'active' (accepted) or 'declined'
+        if ((status === 'active' && oldStatus !== 'active') || (status === 'declined' && oldStatus !== 'declined')) {
+            try {
+                // Send app notification to client
+                const notificationUserId = caseItem.client_supabase_id || caseItem.client_id;
+                if (status === 'active') {
+                    await createNotification(
+                        notificationUserId,
+                        'case_accepted',
+                        'Case Accepted',
+                        `Your case "${caseItem.title}" has been accepted by the lawyer and is now active.`,
+                        { case_id: parseInt(caseId), case_title: caseItem.title }
+                    );
+                } else if (status === 'declined') {
+                    await createNotification(
+                        notificationUserId,
+                        'case_declined',
+                        'Case Declined',
+                        `Your case "${caseItem.title}" has been declined by the lawyer.`,
+                        { case_id: parseInt(caseId), case_title: caseItem.title }
+                    );
+                }
+            } catch (notificationError) {
+                logger.error('Error creating notification for case status update:', notificationError);
+                // Continue even if notification fails
+            }
+            
+            // Send email notification to client
+            if (caseItem.client_email) {
+                try {
+                    if (status === 'active') {
+                        await sendCaseAcceptedEmail(
+                            caseItem.client_email,
+                            caseItem.client_name || 'Client',
+                            caseItem.title
+                        );
+                        logger.log('Case accepted email sent to client:', { email: caseItem.client_email, caseId });
+                    } else if (status === 'declined') {
+                        await sendCaseDeclinedEmail(
+                            caseItem.client_email,
+                            caseItem.client_name || 'Client',
+                            caseItem.title
+                        );
+                        logger.log('Case declined email sent to client:', { email: caseItem.client_email, caseId });
+                    }
+                } catch (emailError) {
+                    logger.error('Error sending case status email:', emailError);
+                    // Continue even if email fails
+                }
+            }
+        }
         
         res.json({
             success: true,
@@ -1101,5 +1275,225 @@ export async function getBarristerReferrals(req, res) {
     } catch (error) {
         console.error('Error fetching barrister referrals:', error);
         res.status(500).json({ error: 'Failed to fetch referrals' });
+    }
+}
+
+/**
+ * Accept a case (for barristers)
+ * POST /api/cases/:caseId/barrister/accept
+ */
+export async function acceptBarristerCase(req, res) {
+    const { caseId } = req.params;
+    const { barristerId } = req.body;
+    
+    try {
+        if (!barristerId) {
+            return res.status(400).json({ error: 'Barrister ID is required' });
+        }
+
+        // Handle both numeric ID and UUID
+        let actualBarristerId = barristerId;
+        if (barristerId.includes('-')) {
+            const user = await sql`SELECT id FROM "user" WHERE supabase_id = ${barristerId}`;
+            if (user.length === 0) {
+                return res.status(404).json({ error: 'Barrister not found' });
+            }
+            actualBarristerId = user[0].id;
+        }
+
+        // Get case details with client information
+        const caseData = await sql`
+            SELECT c.*, u.name as client_name, u.email as client_email, u.supabase_id as client_supabase_id
+            FROM "case" c 
+            JOIN "user" u ON c.client_id = u.id 
+            WHERE c.id = ${parseInt(caseId)}
+        `;
+        
+        if (!caseData.length) {
+            return res.status(404).json({ error: 'Case not found' });
+        }
+        
+        const caseItem = caseData[0];
+        
+        // Verify the case is assigned to this barrister
+        if (caseItem.barrister_id !== parseInt(actualBarristerId)) {
+            return res.status(403).json({ error: 'Case is not assigned to this barrister' });
+        }
+        
+        // Update case status to active
+        const updated = await sql`
+            UPDATE "case" 
+            SET status = 'active', accepted_at = NOW(), updated_at = NOW() 
+            WHERE id = ${parseInt(caseId)} 
+            RETURNING *
+        `;
+        
+        if (!updated.length) {
+            return res.status(404).json({ error: 'Case not found' });
+        }
+        
+        // Send app notification to client
+        try {
+            // Handle email addresses, UUIDs, and numeric IDs
+            let notificationUserId = caseItem.client_supabase_id || caseItem.client_id;
+            
+            // If it's an email address, look up the user by email
+            if (notificationUserId && notificationUserId.includes('@')) {
+                const userByEmail = await sql`
+                    SELECT id, supabase_id FROM "user" WHERE email = ${notificationUserId}
+                `;
+                if (userByEmail.length > 0) {
+                    // Use supabase_id if available, otherwise use numeric id
+                    notificationUserId = userByEmail[0].supabase_id || userByEmail[0].id;
+                }
+            }
+            
+            await createNotification(
+                notificationUserId,
+                'case_accepted',
+                'Case Accepted',
+                `Your case "${caseItem.title}" has been accepted by the barrister and is now active.`,
+                { case_id: parseInt(caseId), case_title: caseItem.title }
+            );
+        } catch (notificationError) {
+            logger.error('Error creating notification for case acceptance:', notificationError);
+            // Continue even if notification fails
+        }
+        
+        // Send email notification to client
+        if (caseItem.client_email) {
+            try {
+                await sendCaseAcceptedEmail(
+                    caseItem.client_email,
+                    caseItem.client_name || 'Client',
+                    caseItem.title
+                );
+                logger.log('Case accepted email sent to client:', { email: caseItem.client_email, caseId });
+            } catch (emailError) {
+                logger.error('Error sending case accepted email:', emailError);
+                // Continue even if email fails
+            }
+        }
+        
+        res.json({
+            success: true,
+            case: updated[0],
+            message: 'Case accepted successfully'
+        });
+    } catch (error) {
+        console.error('Error accepting case:', error);
+        res.status(500).json({ error: 'Failed to accept case' });
+    }
+}
+
+/**
+ * Reject/Decline a case (for barristers)
+ * POST /api/cases/:caseId/barrister/reject
+ */
+export async function rejectBarristerCase(req, res) {
+    const { caseId } = req.params;
+    const { barristerId, reason } = req.body;
+    
+    try {
+        if (!barristerId) {
+            return res.status(400).json({ error: 'Barrister ID is required' });
+        }
+
+        // Handle both numeric ID and UUID
+        let actualBarristerId = barristerId;
+        if (barristerId.includes('-')) {
+            const user = await sql`SELECT id FROM "user" WHERE supabase_id = ${barristerId}`;
+            if (user.length === 0) {
+                return res.status(404).json({ error: 'Barrister not found' });
+            }
+            actualBarristerId = user[0].id;
+        }
+
+        // Get case details with client information
+        const caseData = await sql`
+            SELECT c.*, u.name as client_name, u.email as client_email, u.supabase_id as client_supabase_id
+            FROM "case" c 
+            JOIN "user" u ON c.client_id = u.id 
+            WHERE c.id = ${parseInt(caseId)}
+        `;
+        
+        if (!caseData.length) {
+            return res.status(404).json({ error: 'Case not found' });
+        }
+        
+        const caseItem = caseData[0];
+        
+        // Verify the case is assigned to this barrister
+        if (caseItem.barrister_id !== parseInt(actualBarristerId)) {
+            return res.status(403).json({ error: 'Case is not assigned to this barrister' });
+        }
+        
+        // Update case status to declined and remove barrister assignment
+        const updated = await sql`
+            UPDATE "case" 
+            SET status = 'declined', 
+                declined_at = NOW(), 
+                barrister_id = NULL,
+                assigned_at = NULL,
+                updated_at = NOW() 
+            WHERE id = ${parseInt(caseId)} 
+            RETURNING *
+        `;
+        
+        if (!updated.length) {
+            return res.status(404).json({ error: 'Case not found' });
+        }
+        
+        // Send app notification to client
+        try {
+            // Handle email addresses, UUIDs, and numeric IDs
+            let notificationUserId = caseItem.client_supabase_id || caseItem.client_id;
+            
+            // If it's an email address, look up the user by email
+            if (notificationUserId && notificationUserId.includes('@')) {
+                const userByEmail = await sql`
+                    SELECT id, supabase_id FROM "user" WHERE email = ${notificationUserId}
+                `;
+                if (userByEmail.length > 0) {
+                    // Use supabase_id if available, otherwise use numeric id
+                    notificationUserId = userByEmail[0].supabase_id || userByEmail[0].id;
+                }
+            }
+            
+            await createNotification(
+                notificationUserId,
+                'case_declined',
+                'Case Declined',
+                `Your case "${caseItem.title}" has been declined by the barrister.${reason ? ` Reason: ${reason}` : ''}`,
+                { case_id: parseInt(caseId), case_title: caseItem.title }
+            );
+        } catch (notificationError) {
+            logger.error('Error creating notification for case decline:', notificationError);
+            // Continue even if notification fails
+        }
+        
+        // Send email notification to client
+        if (caseItem.client_email) {
+            try {
+                await sendCaseDeclinedEmail(
+                    caseItem.client_email,
+                    caseItem.client_name || 'Client',
+                    caseItem.title
+                );
+                logger.log('Case declined email sent to client:', { email: caseItem.client_email, caseId });
+            } catch (emailError) {
+                logger.error('Error sending case declined email:', emailError);
+                // Continue even if email fails
+            }
+        }
+        
+        res.json({
+            success: true,
+            case: updated[0],
+            message: 'Case rejected successfully'
+        });
+    } catch (error) {
+        console.error('Error rejecting case:', error);
+        res.status(500).json({ error: 'Failed to reject case' });
     }
 } 

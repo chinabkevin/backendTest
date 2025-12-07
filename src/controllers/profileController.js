@@ -4,7 +4,8 @@ import { uploadImageToCloudinary, deleteImageFromCloudinary, validateImageFile }
 // POST /api/profile/upload-image - Upload profile image
 export const uploadProfileImage = async (req, res) => {
   try {
-    const { userId } = req.body;
+    // Get userId from body (form data)
+    const userId = req.body.userId;
     
     if (!userId) {
       return res.status(400).json({ error: 'UserId is required' });
@@ -14,14 +15,40 @@ export const uploadProfileImage = async (req, res) => {
       return res.status(400).json({ error: 'No image file provided' });
     }
 
-    // Get user ID from supabase_id
-    const user = await sql`
-      SELECT id, profile_image_public_id FROM "user" WHERE supabase_id = ${userId}
-    `;
+    console.log('Uploading profile image for userId:', userId);
+
+    // Handle both numeric ID and UUID (supabase_id)
+    let userCheck;
+    const userIdString = String(userId);
     
-    if (user.length === 0) {
+    if (userIdString.includes('-')) {
+      // It's a UUID (supabase_id)
+      console.log('Checking for UUID user:', userIdString);
+      userCheck = await sql`
+        SELECT id, profile_image_public_id FROM "user" 
+        WHERE supabase_id = ${userIdString}
+      `;
+    } else {
+      // It's a numeric ID
+      console.log('Checking for numeric user ID:', userIdString);
+      const numericId = parseInt(userIdString, 10);
+      if (!isNaN(numericId) && numericId > 0 && userIdString === String(numericId)) {
+        userCheck = await sql`
+          SELECT id, profile_image_public_id FROM "user" 
+          WHERE id = ${numericId}
+        `;
+      } else {
+        return res.status(400).json({ error: 'Invalid userId format' });
+      }
+    }
+    
+    if (!userCheck.length) {
+      console.log('User not found for userId:', userId);
       return res.status(404).json({ error: 'User not found' });
     }
+    
+    const user = userCheck[0];
+    console.log('Found user with numeric ID:', user.id);
 
     // Validate the uploaded file
     const validation = validateImageFile(req.file);
@@ -30,8 +57,8 @@ export const uploadProfileImage = async (req, res) => {
     }
 
     // Delete old profile image if exists
-    if (user[0].profile_image_public_id) {
-      await deleteImageFromCloudinary(user[0].profile_image_public_id);
+    if (user.profile_image_public_id) {
+      await deleteImageFromCloudinary(user.profile_image_public_id);
     }
 
     // Upload new image to Cloudinary
@@ -48,7 +75,7 @@ export const uploadProfileImage = async (req, res) => {
         profile_image_url = ${uploadResult.url},
         profile_image_public_id = ${uploadResult.public_id},
         updated_at = NOW()
-      WHERE id = ${user[0].id}
+      WHERE id = ${user.id}
       RETURNING id, profile_image_url, profile_image_public_id
     `;
 
@@ -58,7 +85,7 @@ export const uploadProfileImage = async (req, res) => {
       SET 
         profile_photo_url = ${uploadResult.url},
         updated_at = NOW()
-      WHERE user_id = ${user[0].id}
+      WHERE user_id = ${user.id}
     `;
 
     res.json({
@@ -89,18 +116,38 @@ export const removeProfileImage = async (req, res) => {
       return res.status(400).json({ error: 'UserId is required' });
     }
 
-    // Get user ID from supabase_id
-    const user = await sql`
-      SELECT id, profile_image_public_id FROM "user" WHERE supabase_id = ${userId}
-    `;
+    // Handle both numeric ID and UUID (supabase_id)
+    let userCheck;
+    const userIdString = String(userId);
     
-    if (user.length === 0) {
+    if (userIdString.includes('-')) {
+      // It's a UUID (supabase_id)
+      userCheck = await sql`
+        SELECT id, profile_image_public_id FROM "user" 
+        WHERE supabase_id = ${userIdString}
+      `;
+    } else {
+      // It's a numeric ID
+      const numericId = parseInt(userIdString, 10);
+      if (!isNaN(numericId) && numericId > 0 && userIdString === String(numericId)) {
+        userCheck = await sql`
+          SELECT id, profile_image_public_id FROM "user" 
+          WHERE id = ${numericId}
+        `;
+      } else {
+        return res.status(400).json({ error: 'Invalid userId format' });
+      }
+    }
+    
+    if (!userCheck.length) {
       return res.status(404).json({ error: 'User not found' });
     }
+    
+    const user = userCheck[0];
 
     // Delete image from Cloudinary if exists
-    if (user[0].profile_image_public_id) {
-      await deleteImageFromCloudinary(user[0].profile_image_public_id);
+    if (user.profile_image_public_id) {
+      await deleteImageFromCloudinary(user.profile_image_public_id);
     }
 
     // Remove image references from user profile
@@ -110,7 +157,7 @@ export const removeProfileImage = async (req, res) => {
         profile_image_url = NULL,
         profile_image_public_id = NULL,
         updated_at = NOW()
-      WHERE id = ${user[0].id}
+      WHERE id = ${user.id}
       RETURNING id
     `;
 
@@ -120,7 +167,7 @@ export const removeProfileImage = async (req, res) => {
       SET 
         profile_photo_url = NULL,
         updated_at = NOW()
-      WHERE user_id = ${user[0].id}
+      WHERE user_id = ${user.id}
     `;
 
     res.json({
@@ -142,22 +189,42 @@ export const getUserProfileImage = async (req, res) => {
       return res.status(400).json({ error: 'UserId is required' });
     }
 
-    // Get user profile image
-    const user = await sql`
-      SELECT profile_image_url, profile_image_public_id 
-      FROM "user" 
-      WHERE supabase_id = ${userId}
-    `;
+    // Handle both numeric ID and UUID (supabase_id)
+    let userCheck;
+    const userIdString = String(userId);
     
-    if (user.length === 0) {
+    if (userIdString.includes('-')) {
+      // It's a UUID (supabase_id)
+      userCheck = await sql`
+        SELECT profile_image_url, profile_image_public_id 
+        FROM "user" 
+        WHERE supabase_id = ${userIdString}
+      `;
+    } else {
+      // It's a numeric ID
+      const numericId = parseInt(userIdString, 10);
+      if (!isNaN(numericId) && numericId > 0 && userIdString === String(numericId)) {
+        userCheck = await sql`
+          SELECT profile_image_url, profile_image_public_id 
+          FROM "user" 
+          WHERE id = ${numericId}
+        `;
+      } else {
+        return res.status(400).json({ error: 'Invalid userId format' });
+      }
+    }
+    
+    if (!userCheck.length) {
       return res.status(404).json({ error: 'User not found' });
     }
+    
+    const user = userCheck[0];
 
     res.json({
       success: true,
       profileImage: {
-        url: user[0].profile_image_url,
-        publicId: user[0].profile_image_public_id
+        url: user.profile_image_url,
+        publicId: user.profile_image_public_id
       }
     });
   } catch (error) {
