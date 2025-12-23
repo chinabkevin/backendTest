@@ -1,7 +1,10 @@
 import express from 'express';
-import { syncUser, getUserRole, getUserBySupabaseId, getUserProfile, updateUserProfile, ensureUserExists, getUserById } from '../controllers/userController.js';
+import { getAllUsers, syncUser, getUserRole, getUserBySupabaseId, getUserProfile, updateUserProfile, ensureUserExists, getUserById } from '../controllers/userController.js';
 
 const router = express.Router();
+
+// Get all users (must be before /:userId route)
+router.get('/', getAllUsers);
 
 router.post('/sync', syncUser);
 router.post('/ensure', ensureUserExists);
