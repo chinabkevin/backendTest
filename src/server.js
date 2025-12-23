@@ -46,6 +46,7 @@ const corsOptions = {
       "https://advoqat.onrender.com",
       "https://advoqat-frontend.vercel.app",
       "https://legaliq.onrender.com",
+      "https://dashboard.advoqat.com",
       process.env.CORS_ORIGIN
     ].filter(Boolean);
     
