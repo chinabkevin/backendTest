@@ -1,5 +1,45 @@
 import { sql } from "../config/db.js";
 
+// GET /api/users - Get all users (for admin dashboard)
+export async function getAllUsers(req, res) {
+    try {
+        const users = await sql`
+            SELECT 
+                u.id, 
+                u.supabase_id, 
+                u.email, 
+                u.name, 
+                u.phone, 
+                u.role, 
+                u.created_at, 
+                u.updated_at,
+                -- Freelancer fields
+                f.experience,
+                f.expertise_areas,
+                f.id_card_url,
+                f.bar_certificate_url,
+                f.additional_documents,
+                f.is_verified,
+                f.verification_status,
+                f.total_earnings,
+                f.performance_score,
+                f.is_available,
+                -- Barrister fields
+                b.status as barrister_status,
+                b.verification_notes as barrister_verification_notes
+            FROM "user" u
+            LEFT JOIN freelancer f ON u.id = f.user_id
+            LEFT JOIN barrister b ON u.id = b.user_id
+            ORDER BY u.created_at DESC
+        `;
+        
+        res.json(users);
+    } catch (error) {
+        console.error('Error fetching all users:', error);
+        res.status(500).json({ error: 'Failed to fetch users' });
+    }
+}
+
 export async function syncUser(req, res) {
     const { email, name, phone } = req.body;
     console.log('[syncUser] Incoming request:', { email, name, phone });
