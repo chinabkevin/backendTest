@@ -1,8 +1,23 @@
 import { sql } from '../config/db.js';
 import { upload, extractTextFromDocument, saveUploadedDocument, getSessionDocuments, deleteDocument } from '../utils/fileUpload.js';
 
+// Legal topics mapping
+const LEGAL_TOPICS = {
+  'Contract Law': ['contract', 'agreement', 'terms', 'conditions', 'breach', 'enforcement', 'obligation', 'liability', 'clause', 'provision'],
+  'Employment Law': ['employment', 'workplace', 'discrimination', 'harassment', 'wages', 'termination', 'employee', 'employer', 'labor', 'workplace rights'],
+  'Real Estate': ['property', 'real estate', 'landlord', 'tenant', 'mortgage', 'deed', 'lease', 'rental', 'property law', 'housing'],
+  'Business Law': ['business', 'corporate', 'LLC', 'partnership', 'tax', 'compliance', 'company', 'corporation', 'business formation', 'commercial'],
+  'Family Law': ['family', 'divorce', 'custody', 'child support', 'marriage', 'adoption', 'alimony', 'prenup', 'domestic', 'spouse'],
+  'Criminal Law': ['criminal', 'crime', 'arrest', 'charge', 'trial', 'sentencing', 'defense', 'prosecution', 'felony', 'misdemeanor'],
+  'Intellectual Property': ['patent', 'trademark', 'copyright', 'IP', 'intellectual property', 'infringement', 'licensing', 'trade secret'],
+  'Immigration Law': ['immigration', 'visa', 'citizenship', 'green card', 'deportation', 'asylum', 'naturalization', 'immigrant'],
+  'Tax Law': ['tax', 'IRS', 'deduction', 'filing', 'tax return', 'taxation', 'audit', 'tax liability', 'tax law'],
+  'Personal Injury': ['injury', 'accident', 'negligence', 'damages', 'compensation', 'liability', 'medical malpractice', 'personal injury']
+};
+
 // Legal AI Assistant system prompt
-const LEGAL_SYSTEM_PROMPT = `You are a professional legal assistant with expertise in various areas of law. Your role is to provide helpful legal guidance and information to users.
+const getSystemPrompt = (primaryTopic = null) => {
+  let prompt = `You are a professional legal assistant with expertise in various areas of law. Your role is to provide helpful legal guidance and information to users.
 
 IMPORTANT GUIDELINES:
 1. Provide accurate, helpful legal information based on general legal principles
@@ -11,9 +26,19 @@ IMPORTANT GUIDELINES:
 4. Be clear about limitations and when professional legal counsel is needed
 5. Use clear, understandable language while maintaining legal accuracy
 6. Focus on educational and informational responses
-7. If asked about specific legal situations, provide general guidance but emphasize the need for professional consultation
+7. If asked about specific legal situations, provide general guidance but emphasize the need for professional consultation`;
 
-AREAS OF EXPERTISE:
+  if (primaryTopic) {
+    prompt += `\n\nTOPIC FOCUS:
+This conversation session is focused on: ${primaryTopic}
+- Keep responses relevant to ${primaryTopic} and related legal matters
+- If the user asks about a completely different legal topic, politely acknowledge the topic change and suggest they either:
+  1. Continue with the current topic (${primaryTopic}) for better context and continuity
+  2. Start a new session for the different topic to maintain organized conversation threads
+- Be helpful but guide users to maintain topic coherence within a session`;
+  }
+
+  prompt += `\n\nAREAS OF EXPERTISE:
 - Contract Law
 - Employment Law
 - Real Estate Law
@@ -30,9 +55,67 @@ DISCLAIMER: Always include this disclaimer in your responses:
 
 Format your responses professionally and clearly.`;
 
+  return prompt;
+};
+
+// Detect primary topic from message
+function detectTopic(message) {
+  const lowerMessage = message.toLowerCase();
+  let maxMatches = 0;
+  let detectedTopic = null;
+
+  for (const [topic, keywords] of Object.entries(LEGAL_TOPICS)) {
+    let matches = 0;
+    for (const keyword of keywords) {
+      if (lowerMessage.includes(keyword.toLowerCase())) {
+        matches++;
+      }
+    }
+    if (matches > maxMatches) {
+      maxMatches = matches;
+      detectedTopic = topic;
+    }
+  }
+
+  return detectedTopic;
+}
+
+// Check if a message is off-topic compared to the session's primary topic
+function isOffTopic(message, primaryTopic) {
+  if (!primaryTopic) return false; // No topic set, can't be off-topic
+  
+  const detectedTopic = detectTopic(message);
+  
+  // If no topic detected, it might be a general question - not necessarily off-topic
+  if (!detectedTopic) return false;
+  
+  // If detected topic matches primary topic, it's on-topic
+  if (detectedTopic === primaryTopic) return false;
+  
+  // Check if topics are related (e.g., Business Law and Tax Law might be related)
+  const relatedTopics = {
+    'Business Law': ['Tax Law', 'Contract Law'],
+    'Tax Law': ['Business Law'],
+    'Contract Law': ['Business Law', 'Real Estate'],
+    'Real Estate': ['Contract Law'],
+    'Family Law': ['Personal Injury'],
+    'Employment Law': ['Business Law']
+  };
+  
+  const related = relatedTopics[primaryTopic] || [];
+  if (related.includes(detectedTopic)) {
+    return false; // Related topics are considered on-topic
+  }
+  
+  // Different topic detected - likely off-topic
+  return true;
+};
+
 // Generate AI response using OpenRouter
-async function generateAIResponse(messages, model = 'tngtech/deepseek-r1t2-chimera:free') {
+async function generateAIResponse(messages, model = 'tngtech/deepseek-r1t2-chimera:free', primaryTopic = null) {
   try {
+    const systemPrompt = getSystemPrompt(primaryTopic);
+    
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -46,7 +129,7 @@ async function generateAIResponse(messages, model = 'tngtech/deepseek-r1t2-chime
         messages: [
           {
             role: 'system',
-            content: LEGAL_SYSTEM_PROMPT
+            content: systemPrompt
           },
           ...messages
         ],
@@ -77,9 +160,9 @@ async function generateAIResponse(messages, model = 'tngtech/deepseek-r1t2-chime
 // POST /api/v1/ai/chat - Send a message and get AI response
 export const sendMessage = async (req, res) => {
   try {
-    const { sessionId, message, userId } = req.body;
+    const { sessionId, message, userId, topic } = req.body;
     
-    console.log('sendMessage called with:', { sessionId, userId, messageLength: message?.length });
+    console.log('sendMessage called with:', { sessionId, userId, messageLength: message?.length, topic });
     
     // Validate required fields
     if (!message || !userId) {
@@ -116,27 +199,41 @@ export const sendMessage = async (req, res) => {
     const user = [{ id: userCheck[0].id }];
 
     let session;
+    let primaryTopic = null;
+    let isOffTopicQuestion = false;
     
     // If sessionId is provided, use existing session, otherwise create new one
     if (sessionId) {
-      session = await sql`
-        SELECT id, title FROM chat_sessions 
+      const sessionResult = await sql`
+        SELECT id, title, primary_topic FROM chat_sessions 
         WHERE id = ${sessionId} AND user_id = ${user[0].id} AND status = 'active'
       `;
       
-      if (session.length === 0) {
+      if (sessionResult.length === 0) {
         return res.status(404).json({ error: 'Session not found' });
       }
-      session = session[0];
+      session = sessionResult[0];
+      primaryTopic = session.primary_topic;
+      
+      // Check if the new message is off-topic
+      if (primaryTopic) {
+        isOffTopicQuestion = isOffTopic(message, primaryTopic);
+        console.log('Topic check:', { primaryTopic, isOffTopicQuestion });
+      }
     } else {
       // Create new session with title from first message
       const title = message.length > 50 ? message.substring(0, 50) + '...' : message;
+      
+      // Detect topic from the first message or use provided topic
+      const detectedTopic = topic || detectTopic(message);
+      
       const [newSession] = await sql`
-        INSERT INTO chat_sessions (user_id, title, category)
-        VALUES (${user[0].id}, ${title}, 'Legal Consultation')
-        RETURNING id, title
+        INSERT INTO chat_sessions (user_id, title, category, primary_topic)
+        VALUES (${user[0].id}, ${title}, 'Legal Consultation', ${detectedTopic || null})
+        RETURNING id, title, primary_topic
       `;
       session = newSession;
+      primaryTopic = newSession.primary_topic;
     }
 
     // Save user message
@@ -158,8 +255,16 @@ export const sendMessage = async (req, res) => {
       content: msg.content
     }));
 
-    // Generate AI response
-    const aiResponse = await generateAIResponse(messages);
+    // If off-topic, add a special instruction to the last user message
+    if (isOffTopicQuestion && primaryTopic) {
+      const lastMessageIndex = messages.length - 1;
+      if (lastMessageIndex >= 0 && messages[lastMessageIndex].role === 'user') {
+        messages[lastMessageIndex].content = `${message}\n\n[Note: This question appears to be about a different legal topic than the current session focus (${primaryTopic}). Please acknowledge this and suggest the user either continue with ${primaryTopic} or start a new session for the different topic.]`;
+      }
+    }
+
+    // Generate AI response with topic awareness
+    const aiResponse = await generateAIResponse(messages, 'tngtech/deepseek-r1t2-chimera:free', primaryTopic);
 
     // Save AI response
     await sql`
@@ -167,13 +272,28 @@ export const sendMessage = async (req, res) => {
       VALUES (${session.id}, 'assistant', ${aiResponse.content}, ${aiResponse.tokens_used}, ${aiResponse.model_used})
     `;
 
+    // Update primary topic if it wasn't set and we detected one
+    if (!primaryTopic && sessionId) {
+      const detectedTopic = detectTopic(message);
+      if (detectedTopic) {
+        await sql`
+          UPDATE chat_sessions 
+          SET primary_topic = ${detectedTopic}
+          WHERE id = ${session.id}
+        `;
+        primaryTopic = detectedTopic;
+      }
+    }
+
     res.json({
       success: true,
       sessionId: session.id,
       sessionTitle: session.title,
       response: aiResponse.content,
       tokensUsed: aiResponse.tokens_used,
-      modelUsed: aiResponse.model_used
+      modelUsed: aiResponse.model_used,
+      isOffTopic: isOffTopicQuestion,
+      primaryTopic: primaryTopic
     });
   } catch (error) {
     console.error('Error in sendMessage:', error);

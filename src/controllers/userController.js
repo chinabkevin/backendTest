@@ -1,4 +1,6 @@
 import { sql } from "../config/db.js";
+import { sendClientWelcomeEmail } from "../utils/emailService.js";
+import logger from "../utils/logger.js";
 
 // GET /api/users - Get all users (for admin dashboard)
 export async function getAllUsers(req, res) {
@@ -63,6 +65,8 @@ export async function syncUser(req, res) {
         `;
         
         let result;
+        let isNewUser = false;
+        
         if (existingUsers.length > 0) {
             const existing = existingUsers[0];
             result = await sql`
@@ -76,6 +80,7 @@ export async function syncUser(req, res) {
             `;
             console.log('[syncUser] Updated user by email:', result[0]);
         } else {
+            isNewUser = true;
             result = await sql`
                 INSERT INTO "user" (email, name, phone)
                 VALUES (${email}, ${name || null}, ${phone || null})
@@ -90,6 +95,18 @@ export async function syncUser(req, res) {
         }
         
         const syncedUser = result[0];
+        
+        // Send welcome email only for new users (not lawyers/barristers - they have their own welcome emails)
+        if (isNewUser && syncedUser.role === 'user') {
+            try {
+                await sendClientWelcomeEmail(syncedUser.email, syncedUser.name);
+                logger.log('Client welcome email sent via syncUser:', { email: syncedUser.email, name: syncedUser.name });
+            } catch (emailError) {
+                logger.error('Error sending client welcome email via syncUser:', emailError);
+                // Don't fail the sync if email fails
+            }
+        }
+        
         console.log('[syncUser] ✅ User synced successfully:', {
             id: syncedUser.id,
             email: syncedUser.email,
