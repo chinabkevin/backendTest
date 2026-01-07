@@ -1,6 +1,8 @@
 import express from 'express'
 import { googleOAuthConfig, syncUserToDatabase } from '../config/auth.js'
 import { sql } from '../config/db.js'
+import { sendClientWelcomeEmail } from '../utils/emailService.js'
+import logger from '../utils/logger.js'
 
 const router = express.Router()
 
@@ -173,6 +175,15 @@ router.post('/api/auth/signup', async (req, res) => {
     `
     
     console.log('[Auth] New user created:', newUser[0])
+    
+    // Send welcome email to the new user
+    try {
+      await sendClientWelcomeEmail(newUser[0].email, newUser[0].name);
+      logger.log('Client welcome email sent:', { email: newUser[0].email, name: newUser[0].name });
+    } catch (emailError) {
+      logger.error('Error sending client welcome email:', emailError);
+      // Don't fail the registration if email fails
+    }
     
     // Create session data
     const sessionData = {

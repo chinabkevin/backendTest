@@ -674,9 +674,42 @@ export const bookConsultation = async (req, res) => {
         ? `https://meet.jit.si/advoqat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
         : null;
       
-      // Calculate additional fee for voice call
-      const baseFee = 50; // Base consultation fee
-      const voiceCallFee = method === 'voice' ? 15 : 0; // Additional fee for voice calls
+      // Get lawyer's consultation fees from freelancer table
+      const freelancerFees = await sql`
+        SELECT 
+          base_consultation_fee,
+          video_consultation_fee,
+          chat_consultation_fee,
+          voice_consultation_fee,
+          voice_call_additional_fee
+        FROM freelancer
+        WHERE id = ${freelancerRecord.id}
+      `;
+      
+      // Use lawyer's fees if available, otherwise use defaults
+      let baseFee = 50; // Default base consultation fee
+      let voiceCallFee = 0; // Default additional fee for voice calls
+      
+      if (freelancerFees.length > 0 && freelancerFees[0]) {
+        const fees = freelancerFees[0];
+        
+        // Determine base fee based on consultation method
+        if (consultationType === 'video' && fees.video_consultation_fee) {
+          baseFee = parseFloat(fees.video_consultation_fee);
+        } else if (consultationType === 'chat' && fees.chat_consultation_fee) {
+          baseFee = parseFloat(fees.chat_consultation_fee);
+        } else if (consultationType === 'audio' && fees.voice_consultation_fee) {
+          baseFee = parseFloat(fees.voice_consultation_fee);
+        } else if (fees.base_consultation_fee) {
+          baseFee = parseFloat(fees.base_consultation_fee);
+        }
+        
+        // Add voice call additional fee if applicable
+        if (consultationType === 'audio' && fees.voice_call_additional_fee) {
+          voiceCallFee = parseFloat(fees.voice_call_additional_fee);
+        }
+      }
+      
       const totalFee = baseFee + voiceCallFee;
       
       // Create consultation - store the freelancer's actual ID, not user_id

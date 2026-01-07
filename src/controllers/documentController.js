@@ -462,8 +462,30 @@ export async function getUserDocuments(req, res) {
             created_at: doc.created_at
         }));
 
+        // Get user-generated documents (from documents table)
+        const userGeneratedDocuments = await sql`
+            SELECT 
+                id,
+                user_id,
+                template_id,
+                template_name,
+                form_data,
+                generated_document,
+                document_type,
+                document_fee,
+                payment_status,
+                download_count,
+                status,
+                created_at
+            FROM documents
+            WHERE user_id = ${numericUserId} AND status != 'deleted'
+            ORDER BY created_at DESC
+        `;
+
+        console.log('Found user-generated documents:', userGeneratedDocuments.length);
+
         // Combine all documents
-        const allDocuments = [...caseDocuments, ...formattedAiDocuments];
+        const allDocuments = [...userGeneratedDocuments, ...caseDocuments, ...formattedAiDocuments];
 
         console.log('Total documents found:', allDocuments.length);
 
@@ -471,6 +493,8 @@ export async function getUserDocuments(req, res) {
             success: true,
             documents: allDocuments,
             total: allDocuments.length,
+            userUploadedCount: userGeneratedDocuments.length,
+            receivedCount: caseDocuments.length + formattedAiDocuments.length,
             caseDocuments: caseDocuments.length,
             aiDocuments: formattedAiDocuments.length
         });

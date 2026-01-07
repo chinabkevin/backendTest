@@ -106,9 +106,14 @@ export const sendDocumentUploadConfirmation = async (email, name) => {
 
 export const sendBarristerWelcomeEmail = async (email, name) => {
   try {
-    const subject = 'Welcome to AdvoQat – Next Steps';
+    const subject = 'Welcome to AdvoQat – Complete Your Onboarding';
+    const baseUrl = process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL?.replace('/api', '') || 'https://advoqat.com';
+    const dashboardUrl = `${baseUrl}/signup/barrister/documents`;
+    
     const htmlContent = await loadTemplate('barristerWelcome', {
-      name: name || 'Barrister'
+      name: name || 'Barrister',
+      dashboardUrl: dashboardUrl,
+      year: new Date().getFullYear()
     });
 
     return await sendEmail({
@@ -126,6 +131,39 @@ export const sendBarristerWelcomeEmail = async (email, name) => {
 };
 
 /**
+ * Send client/user welcome email
+ * @param {string} email - Recipient email
+ * @param {string} name - Recipient name
+ * @param {string} [dashboardUrl] - Optional dashboard URL
+ * @returns {Promise<Object>} - Email sending result
+ */
+export const sendClientWelcomeEmail = async (email, name, dashboardUrl = null) => {
+  try {
+    const subject = 'Welcome to AdvoQat – Your Legal Journey Starts Here';
+    const baseUrl = process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL?.replace('/api', '') || 'https://advoqat.com';
+    const url = dashboardUrl || `${baseUrl}/dashboard`;
+    
+    const htmlContent = await loadTemplate('clientWelcome', {
+      name: name || 'there',
+      dashboardUrl: url,
+      year: new Date().getFullYear()
+    });
+
+    return await sendEmail({
+      to: email,
+      subject,
+      htmlContent
+    });
+  } catch (error) {
+    logger.error('Error sending client welcome email:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to send welcome email'
+    };
+  }
+};
+
+/**
  * Send lawyer/freelancer welcome email
  * @param {string} email - Recipient email
  * @param {string} name - Recipient name
@@ -135,7 +173,8 @@ export const sendLawyerWelcomeEmail = async (email, name) => {
   try {
     const subject = 'Welcome to AdvoQat – Registration Under Review';
     const htmlContent = await loadTemplate('lawyerWelcome', {
-      name: name || 'Lawyer'
+      name: name || 'Lawyer',
+      year: new Date().getFullYear()
     });
 
     return await sendEmail({

@@ -108,7 +108,17 @@ export async function deleteFreelancer(req, res) {
 
 export async function updateFreelancerProfile(req, res) {
     const { userId } = req.params;
-    const { name, phone, experience, expertiseAreas } = req.body;
+    const { 
+        name, 
+        phone, 
+        experience, 
+        expertiseAreas,
+        baseConsultationFee,
+        videoConsultationFee,
+        chatConsultationFee,
+        voiceConsultationFee,
+        voiceCallAdditionalFee
+    } = req.body;
     try {
         if (!userId) return res.status(400).json({ error: 'Missing userId' });
         
@@ -135,6 +145,11 @@ export async function updateFreelancerProfile(req, res) {
                 phone = COALESCE(${phone}, phone),
                 experience = COALESCE(${experience}, experience),
                 expertise_areas = COALESCE(${expertiseAreas}, expertise_areas),
+                base_consultation_fee = COALESCE(${baseConsultationFee !== null && baseConsultationFee !== undefined ? baseConsultationFee : null}, base_consultation_fee),
+                video_consultation_fee = COALESCE(${videoConsultationFee !== null && videoConsultationFee !== undefined ? videoConsultationFee : null}, video_consultation_fee),
+                chat_consultation_fee = COALESCE(${chatConsultationFee !== null && chatConsultationFee !== undefined ? chatConsultationFee : null}, chat_consultation_fee),
+                voice_consultation_fee = COALESCE(${voiceConsultationFee !== null && voiceConsultationFee !== undefined ? voiceConsultationFee : null}, voice_consultation_fee),
+                voice_call_additional_fee = COALESCE(${voiceCallAdditionalFee !== null && voiceCallAdditionalFee !== undefined ? voiceCallAdditionalFee : null}, voice_call_additional_fee),
                 updated_at = NOW()
             WHERE user_id = ${dbUserId}
             RETURNING *`;
