@@ -178,7 +178,7 @@ export async function registerBarrister(req, res) {
       if (barristerExists.length === 0) {
         await sql`
           INSERT INTO barrister (user_id, name, email, phone, status, stage)
-          VALUES (${dbUserId}, ${name}, ${email}, ${phone || null}, 'PENDING_VERIFICATION', 'documents_upload')
+          VALUES (${dbUserId}, ${name}, ${email}, ${phone || null}, 'PENDING_VERIFICATION', 'eligibility_check')
         `;
       } else {
         // Update existing barrister record
@@ -189,7 +189,7 @@ export async function registerBarrister(req, res) {
             email = ${email},
             phone = ${phone || null},
             status = 'PENDING_VERIFICATION',
-            stage = 'documents_upload',
+            stage = 'eligibility_check',
             updated_at = NOW()
           WHERE user_id = ${dbUserId}
         `;
@@ -213,7 +213,7 @@ export async function registerBarrister(req, res) {
       if (barristerExists.length === 0) {
         await sql`
           INSERT INTO barrister (user_id, name, email, phone, status, stage)
-          VALUES (${user[0].id}, ${name}, ${email}, ${phone || null}, 'PENDING_VERIFICATION', 'documents_upload')
+          VALUES (${user[0].id}, ${name}, ${email}, ${phone || null}, 'PENDING_VERIFICATION', 'eligibility_check')
         `;
       }
     }
