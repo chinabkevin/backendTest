@@ -10,6 +10,7 @@ import {
     getUserDocuments,
     getDocumentById,
     generateDocument,
+    createDocumentFromChat,
     documentPreview,
     documentDownload,
 } from '../controllers/documentController.js';
@@ -24,6 +25,9 @@ const previewLimiter = rateLimit({
 
 // Generate a document using AI (unchanged)
 router.post('/generate', generateDocument);
+
+// Create a document from AI chat content (for paywall: preview → pay → download)
+router.post('/from-chat', createDocumentFromChat);
 
 // Paywall: preview (limited content + price) — rate limited
 router.post('/preview', previewLimiter, documentPreview);

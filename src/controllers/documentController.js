@@ -348,6 +348,60 @@ export async function getDocumentById(req, res) {
     }
 }
 
+// POST /api/v1/documents/from-chat - Create a document from AI chat content (paywall: preview → pay → download)
+export async function createDocumentFromChat(req, res) {
+    try {
+        const { content, userId } = req.body;
+        if (!content || typeof content !== 'string' || !userId) {
+            return res.status(400).json({ error: 'content and userId are required' });
+        }
+        const userIdString = String(userId);
+        let userCheck;
+        if (userIdString.includes('-')) {
+            userCheck = await sql`SELECT id FROM "user" WHERE supabase_id = ${userIdString}`;
+        } else {
+            const numericId = parseInt(userIdString, 10);
+            if (isNaN(numericId) || numericId <= 0) {
+                return res.status(400).json({ error: 'Invalid userId' });
+            }
+            userCheck = await sql`SELECT id FROM "user" WHERE id = ${numericId}`;
+        }
+        if (!userCheck.length) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        const numericUserId = userCheck[0].id;
+        const [document] = await sql`
+            INSERT INTO documents (
+                user_id,
+                template_id,
+                template_name,
+                form_data,
+                generated_document,
+                document_type,
+                document_fee,
+                payment_status,
+                status
+            )
+            VALUES (
+                ${numericUserId},
+                'ai-chat',
+                'AI-generated document',
+                ${JSON.stringify({})},
+                ${content.trim()},
+                'ai-chat',
+                ${DEFAULT_DOCUMENT_FEE_PENCE},
+                'pending',
+                'active'
+            )
+            RETURNING id
+        `;
+        return res.json({ success: true, documentId: document.id });
+    } catch (err) {
+        console.error('createDocumentFromChat error:', err);
+        res.status(500).json({ error: 'Failed to create document from chat' });
+    }
+}
+
 // Get documents by user ID
 export async function getUserDocuments(req, res) {
     const { userId } = req.query;
