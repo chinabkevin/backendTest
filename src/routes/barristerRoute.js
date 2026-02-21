@@ -9,6 +9,8 @@ import {
   submitLegalDeclarations,
   searchBarristers,
   getBarristerByUserId,
+  getAllBarristers,
+  validateBarrister,
   // Dashboard endpoints
   getBarristerDashboard,
   getBarristerEnquiries,
@@ -96,8 +98,14 @@ router.get('/resources/list', getResources);
 // Analytics
 router.get('/analytics', getBarristerAnalytics);
 
+// List all barristers (admin dashboard - must be before :userId)
+router.get('/', getAllBarristers);
+
 // Search (must be before :userId route)
 router.get('/search', searchBarristers);
+
+// Validate (whitelist) barrister - admin confirms register match and activates account
+router.post('/:barristerId/validate', validateBarrister);
 
 // Sync barristers (admin utility - syncs users with role='barrister' to barrister table)
 router.post('/sync', syncBarristers);

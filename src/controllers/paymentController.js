@@ -95,6 +95,64 @@ export const createCheckoutSession = async (req, res) => {
   }
 };
 
+// Create checkout session for document unlock (paywall)
+export const createDocumentCheckoutSession = async (req, res) => {
+  try {
+    const { documentId, userId, amount, successUrl, cancelUrl } = req.body;
+    if (!documentId || !userId || amount == null) {
+      return res.status(400).json({
+        success: false,
+        message: 'documentId, userId, and amount are required',
+      });
+    }
+    const numericAmount = Math.round(Number(amount));
+    if (numericAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid amount' });
+    }
+
+    const userRows = await sql`SELECT id FROM "user" WHERE supabase_id = ${userId}`;
+    if (!userRows.length) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const dbUserId = userRows[0].id;
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [{
+        price_data: {
+          currency: 'gbp',
+          product_data: {
+            name: 'Document unlock — editable Word download',
+            description: 'One-time download including editable Word document and regenerations',
+          },
+          unit_amount: numericAmount,
+        },
+        quantity: 1,
+      }],
+      metadata: {
+        documentId: String(documentId),
+        userId: String(dbUserId),
+      },
+      mode: 'payment',
+      success_url: successUrl || `${process.env.FRONTEND_URL}/dashboard/documents?payment=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: cancelUrl || `${process.env.FRONTEND_URL}/dashboard/documents?payment=cancelled`,
+    });
+
+    res.json({
+      success: true,
+      sessionId: session.id,
+      url: session.url,
+    });
+  } catch (error) {
+    console.error('Error creating document checkout session:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create checkout session',
+      error: error.message,
+    });
+  }
+};
+
 // Verify a completed payment session
 export const verifyPaymentSession = async (req, res) => {
   try {
@@ -122,6 +180,90 @@ export const verifyPaymentSession = async (req, res) => {
       success: false, 
       message: 'Failed to verify payment session', 
       error: error.message 
+    });
+  }
+};
+
+/**
+ * Confirm document payment from success redirect (when webhook may not have run, e.g. local dev).
+ * Retrieves session from Stripe, marks document paid, generates Word file, and sets generated_file_path.
+ */
+export const confirmDocumentPayment = async (req, res) => {
+  try {
+    const { sessionId, documentId } = req.body;
+    if (!sessionId || !documentId) {
+      return res.status(400).json({
+        success: false,
+        message: 'sessionId and documentId are required',
+      });
+    }
+
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    if (session.payment_status !== 'paid') {
+      return res.status(402).json({
+        success: false,
+        message: 'Payment not completed',
+      });
+    }
+    const metaDocId = session.metadata?.documentId;
+    if (String(metaDocId) !== String(documentId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Document ID does not match session',
+      });
+    }
+
+    const docId = parseInt(String(documentId), 10);
+    if (isNaN(docId)) {
+      return res.status(400).json({ success: false, message: 'Invalid documentId' });
+    }
+
+    const { updateDocumentPayment } = await import('./documentController.js');
+    const { renderWordDocument, saveDocumentToStorage } = await import('../services/documentRenderer.js');
+
+    await updateDocumentPayment(docId, {
+      paymentStatus: 'paid',
+      paymentId: session.id,
+      paymentAmount: session.amount_total,
+    });
+
+    const [doc] = await sql`
+      SELECT id, user_id, generated_document, jurisdiction, risk_level, version_id
+      FROM documents WHERE id = ${docId}
+    `;
+    if (doc && doc.generated_document) {
+      try {
+        const versionId = doc.version_id || `v1_${Date.now()}`;
+        const buffer = await renderWordDocument({
+          content: doc.generated_document,
+          documentId: doc.id,
+          versionId,
+          jurisdiction: doc.jurisdiction || 'England & Wales',
+          riskLevel: doc.risk_level || 'Simple',
+        });
+        const relativePath = await saveDocumentToStorage(buffer, doc.user_id, doc.id, versionId);
+        await sql`
+          UPDATE documents
+          SET generated_file_path = ${relativePath}, version_id = ${versionId}, updated_at = NOW()
+          WHERE id = ${docId}
+        `;
+      } catch (genErr) {
+        console.error('Error generating Word document in confirmDocumentPayment:', genErr);
+        return res.status(500).json({
+          success: false,
+          message: 'Document file could not be generated',
+          error: genErr.message,
+        });
+      }
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('confirmDocumentPayment error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to confirm document payment',
+      error: error.message,
     });
   }
 };
@@ -255,15 +397,44 @@ const handleCompletedCheckout = async (session) => {
 
       console.log(`Payment confirmed for consultation ${consultationId}`);
     } else if (documentId) {
-      // Handle document payment
+      // Handle document payment: mark paid, then generate Word and store path
       const { updateDocumentPayment } = await import('./documentController.js');
-      
-      await updateDocumentPayment(documentId, {
+      const { renderWordDocument, saveDocumentToStorage } = await import('../services/documentRenderer.js');
+      const docId = parseInt(documentId, 10);
+      if (isNaN(docId)) {
+        console.error('Invalid documentId in webhook:', documentId);
+        return;
+      }
+      await updateDocumentPayment(docId, {
         paymentStatus: 'paid',
         paymentId: session.id,
         paymentAmount: session.amount_total,
       });
 
+      const [doc] = await sql`
+        SELECT id, user_id, generated_document, jurisdiction, risk_level, version_id
+        FROM documents WHERE id = ${docId}
+      `;
+      if (doc && doc.generated_document) {
+        try {
+          const versionId = doc.version_id || `v1_${Date.now()}`;
+          const buffer = await renderWordDocument({
+            content: doc.generated_document,
+            documentId: doc.id,
+            versionId,
+            jurisdiction: doc.jurisdiction || 'England & Wales',
+            riskLevel: doc.risk_level || 'Simple',
+          });
+          const relativePath = await saveDocumentToStorage(buffer, doc.user_id, doc.id, versionId);
+          await sql`
+            UPDATE documents
+            SET generated_file_path = ${relativePath}, version_id = ${versionId}, updated_at = NOW()
+            WHERE id = ${docId}
+          `;
+        } catch (genErr) {
+          console.error('Error generating Word document after payment:', genErr);
+        }
+      }
       console.log(`Payment confirmed for document ${documentId}`);
     } else {
       console.error('No consultationId or documentId found in session metadata');

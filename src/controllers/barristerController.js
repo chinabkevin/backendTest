@@ -1517,6 +1517,95 @@ export async function getBarristerByUserId(req, res) {
   }
 }
 
+/**
+ * List all barristers (admin dashboard)
+ * GET /api/barrister
+ * Returns barristers with user info for dashboard list view.
+ */
+export async function getAllBarristers(req, res) {
+  try {
+    const rows = await sql`
+      SELECT 
+        b.id,
+        b.user_id,
+        b.name,
+        b.email,
+        b.status,
+        b.stage,
+        b.created_at,
+        u.name AS user_name,
+        u.email AS user_email
+      FROM barrister b
+      LEFT JOIN "user" u ON u.id = b.user_id
+      ORDER BY b.created_at DESC
+    `;
+
+    const statusToVerification = {
+      APPROVED: 'verified',
+      PENDING_VERIFICATION: 'pending',
+      REJECTED: 'rejected',
+      INCOMPLETE: 'pending'
+    };
+
+    const stageToCompletion = {
+      completed: 100,
+      review: 80,
+      professional_information: 60,
+      document_upload_completed: 40,
+      eligibility_check: 20
+    };
+
+    const barristers = rows.map((b) => ({
+      id: b.id,
+      user_id: b.user_id,
+      verification_status: statusToVerification[b.status] || 'pending',
+      profile_completion: stageToCompletion[b.stage] ?? 0,
+      created_at: b.created_at,
+      user: {
+        name: b.user_name ?? b.name ?? '',
+        email: b.user_email ?? b.email ?? ''
+      }
+    }));
+
+    res.json(barristers);
+  } catch (error) {
+    logger.error('Error listing barristers:', error);
+    res.status(500).json({ error: 'Failed to get barristers' });
+  }
+}
+
+/**
+ * Validate (whitelist) a barrister after admin confirms a match on the register
+ * POST /api/barrister/:barristerId/validate
+ * Sets status to APPROVED and validated_at, making the account active.
+ */
+export async function validateBarrister(req, res) {
+  try {
+    const barristerId = parseInt(req.params.barristerId, 10);
+    if (!barristerId || isNaN(barristerId)) {
+      return res.status(400).json({ error: 'Invalid barrister ID' });
+    }
+
+    const existing = await sql`
+      SELECT id, status FROM barrister WHERE id = ${barristerId}
+    `;
+    if (existing.length === 0) {
+      return res.status(404).json({ error: 'Barrister not found' });
+    }
+
+    await sql`
+      UPDATE barrister
+      SET status = 'APPROVED', validated_at = NOW(), updated_at = NOW()
+      WHERE id = ${barristerId}
+    `;
+
+    res.json({ success: true, message: 'Barrister validated and activated' });
+  } catch (error) {
+    logger.error('Error validating barrister:', error);
+    res.status(500).json({ error: 'Failed to validate barrister' });
+  }
+}
+
 // ==================== DASHBOARD HOMEPAGE ====================
 
 /**

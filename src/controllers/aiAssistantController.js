@@ -111,8 +111,9 @@ function isOffTopic(message, primaryTopic) {
   return true;
 };
 
-// Generate AI response using OpenRouter
-async function generateAIResponse(messages, model = 'tngtech/deepseek-r1t2-chimera:free', primaryTopic = null) {
+// Generate AI response using OpenRouter (model configurable via OPENROUTER_AI_MODEL)
+const DEFAULT_AI_MODEL = process.env.OPENROUTER_AI_MODEL || 'google/gemini-2.0-flash-001';
+async function generateAIResponse(messages, model = DEFAULT_AI_MODEL, primaryTopic = null) {
   try {
     const systemPrompt = getSystemPrompt(primaryTopic);
     
@@ -264,7 +265,7 @@ export const sendMessage = async (req, res) => {
     }
 
     // Generate AI response with topic awareness
-    const aiResponse = await generateAIResponse(messages, 'tngtech/deepseek-r1t2-chimera:free', primaryTopic);
+    const aiResponse = await generateAIResponse(messages, DEFAULT_AI_MODEL, primaryTopic);
 
     // Save AI response
     await sql`
@@ -576,11 +577,11 @@ export const getAvailableModels = async (req, res) => {
   try {
     const models = [
       {
-        id: 'tngtech/deepseek-r1t2-chimera:free',
-        name: 'DeepSeek R1T2 Chimera (Free)',
-        description: 'High-performance model with reasoning capabilities - faster and more efficient',
+        id: DEFAULT_AI_MODEL,
+        name: 'Gemini 2.0 Flash (Default)',
+        description: 'Fast, capable model for chat and documents',
         maxTokens: 4000,
-        pricing: 'Free'
+        pricing: 'Low cost'
       },
       {
         id: 'anthropic/claude-3.5-sonnet',
@@ -611,7 +612,7 @@ export const getAvailableModels = async (req, res) => {
 // POST /api/v1/ai/chat/stream - Stream chat response (for real-time updates)
 export const streamChat = async (req, res) => {
   try {
-    const { sessionId, message, userId, model = 'tngtech/deepseek-r1t2-chimera:free' } = req.body;
+    const { sessionId, message, userId, model = DEFAULT_AI_MODEL } = req.body;
     
     if (!message || !userId) {
       return res.status(400).json({ error: 'Message and userId are required' });

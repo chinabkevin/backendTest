@@ -1,5 +1,14 @@
 import { sql } from "../config/db.js";
 import { uploadCaseDocument as uploadToCloudinary, deleteCaseDocument as deleteFromCloudinary, validateDocumentFile } from "../utils/fileUpload.js";
+import { classifyDocument } from "../services/documentClassifier.js";
+import { evaluateRisk } from "../services/riskEvaluator.js";
+import { calculatePrice } from "../services/pricingEngine.js";
+import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const UPLOADS_BASE = process.env.DOCUMENT_UPLOADS_DIR || path.join(__dirname, "../../uploads/documents");
 
 // Helper function to format file size
 const formatFileSize = (bytes) => {
@@ -293,6 +302,52 @@ export async function getDocumentDownloadUrl(req, res) {
     }
 } 
 
+// GET /api/v1/documents/:id - Get a single document by id (for View detail page)
+export async function getDocumentById(req, res) {
+    const { id } = req.params;
+    const { userId } = req.query;
+    try {
+        if (!id || !userId) {
+            return res.status(400).json({ error: 'Document id and userId are required' });
+        }
+        const docId = parseInt(String(id), 10);
+        if (isNaN(docId)) {
+            console.log('getDocumentById: skipping non-numeric id (case/ai doc):', id);
+            return res.status(400).json({ error: 'Invalid document id' });
+        }
+        console.log('getDocumentById: fetching document', docId, 'for userId', userId);
+        let userCheck;
+        const userIdString = String(userId);
+        if (userIdString.includes('-')) {
+            userCheck = await sql`SELECT id FROM "user" WHERE supabase_id = ${userIdString}`;
+        } else {
+            const numericId = parseInt(userIdString, 10);
+            if (isNaN(numericId) || numericId <= 0) {
+                return res.status(400).json({ error: 'Invalid userId' });
+            }
+            userCheck = await sql`SELECT id FROM "user" WHERE id = ${numericId}`;
+        }
+        if (!userCheck.length) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        const numericUserId = userCheck[0].id;
+        const [doc] = await sql`
+            SELECT id, user_id, template_id, template_name, form_data, generated_document, document_type,
+                   document_fee, payment_status, payment_session_id, payment_intent_id, paid_at,
+                   download_count, status, created_at
+            FROM documents
+            WHERE id = ${docId} AND user_id = ${numericUserId} AND status != 'deleted'
+        `;
+        if (!doc) {
+            return res.status(404).json({ error: 'Document not found' });
+        }
+        res.json({ document: doc });
+    } catch (err) {
+        console.error('getDocumentById error:', err);
+        res.status(500).json({ error: 'Failed to fetch document' });
+    }
+}
+
 // Get documents by user ID
 export async function getUserDocuments(req, res) {
     const { userId } = req.query;
@@ -508,8 +563,9 @@ export async function getUserDocuments(req, res) {
     }
 }
 
-// Generate document using AI
-async function generateAIResponse(messages, model = 'tngtech/deepseek-r1t2-chimera:free') {
+// Generate document using AI (model configurable via OPENROUTER_DOCUMENT_MODEL; default is a widely available model)
+const DEFAULT_DOCUMENT_MODEL = process.env.OPENROUTER_DOCUMENT_MODEL || 'google/gemini-2.0-flash-001';
+async function generateAIResponse(messages, model = DEFAULT_DOCUMENT_MODEL) {
     try {
         // Check if API key is configured
         const apiKey = process.env.OPENROUTER_API_KEY;
@@ -756,7 +812,7 @@ export async function generateDocument(req, res) {
                 ${JSON.stringify(formData)},
                 ${generatedDocument},
                 ${templateId},
-                0, -- Default fee, can be updated later
+                ${DEFAULT_DOCUMENT_FEE_PENCE},
                 ${paymentStatus},
                 ${paymentSessionId || null},
                 'active'
@@ -779,5 +835,118 @@ export async function generateDocument(req, res) {
             error: 'Failed to generate document',
             details: error.message 
         });
+    }
+}
+
+// Update document payment status (used by payment webhook)
+export async function updateDocumentPayment(documentId, { paymentStatus, paymentId, paymentAmount }) {
+    const [updated] = await sql`
+        UPDATE documents
+        SET payment_status = ${paymentStatus},
+            payment_session_id = ${paymentId || null},
+            paid_at = ${paymentStatus === 'paid' ? new Date() : null},
+            updated_at = NOW()
+        WHERE id = ${documentId}
+        RETURNING *
+    `;
+    return updated;
+}
+
+const PREVIEW_PERCENT = 0.30;
+const LOCKED_MESSAGE = "\n\n--- Content locked. Unlock to access full document. ---";
+
+// Default document fee in pence when not yet set by preview (avoids invalid amount at checkout)
+const DEFAULT_DOCUMENT_FEE_PENCE = 999;
+
+// POST /api/v1/documents/preview - Pricing trigger; returns limited preview + price (never full content)
+export async function documentPreview(req, res) {
+    try {
+        const { documentId, category, complexity, userType, jurisdiction, regenerationCount } = req.body;
+        const userId = req.body.userId || req.user?.id;
+
+        if (!documentId || !userType) {
+            return res.status(400).json({ error: 'documentId and userType are required' });
+        }
+
+        const [doc] = await sql`
+            SELECT id, user_id, generated_document, template_id, category, complexity, risk_level, jurisdiction, regeneration_count, payment_status
+            FROM documents
+            WHERE id = ${documentId}
+        `;
+        if (!doc) return res.status(404).json({ error: 'Document not found' });
+        if (doc.payment_status === 'paid') {
+            return res.status(400).json({ error: 'Document already unlocked' });
+        }
+
+        const content = doc.generated_document || '';
+        const len = content.length;
+        const previewLen = Math.max(0, Math.min(len, Math.floor(len * PREVIEW_PERCENT)));
+        const previewContent = content.slice(0, previewLen) + (previewLen < len ? LOCKED_MESSAGE : '');
+
+        let cat = category || doc.category;
+        let comp = complexity || doc.complexity;
+        if (!cat || !comp) {
+            const classified = classifyDocument(content, doc.template_id);
+            cat = cat || classified.category;
+            comp = comp || classified.complexity;
+        }
+        const riskLevel = evaluateRisk({ category: cat, complexity: comp });
+        const pricing = calculatePrice({
+            category: cat,
+            complexity: comp,
+            userType: userType === 'business' ? 'business' : 'individual',
+            jurisdiction: jurisdiction || doc.jurisdiction,
+            regenerationCount: Number(regenerationCount) || doc.regeneration_count || 0,
+        });
+
+        await sql`
+            UPDATE documents
+            SET category = ${cat}, complexity = ${comp}, risk_level = ${riskLevel},
+                jurisdiction = ${jurisdiction || doc.jurisdiction},
+                regeneration_count = ${Number(regenerationCount) ?? doc.regeneration_count ?? 0},
+                user_type = ${userType},
+                document_fee = ${pricing.finalPrice},
+                updated_at = NOW()
+            WHERE id = ${documentId}
+        `;
+
+        return res.json({
+            previewContent,
+            price: pricing.finalPrice,
+            currency: pricing.currency,
+            category: cat,
+            complexity: comp,
+            jurisdiction: jurisdiction || doc.jurisdiction || 'England & Wales',
+            riskLevel,
+            regenerationLimit: pricing.regenerationLimit,
+            pricingBreakdown: pricing.pricingBreakdown,
+            explanation: pricing.explanation,
+        });
+    } catch (err) {
+        console.error('documentPreview error:', err);
+        res.status(500).json({ error: 'Failed to generate preview' });
+    }
+}
+
+// GET /api/v1/documents/download/:id - Serve file only if payment verified (use verifyDocumentPayment middleware)
+export async function documentDownload(req, res) {
+    try {
+        const doc = req.document;
+        const fullPath = path.isAbsolute(doc.generated_file_path)
+            ? doc.generated_file_path
+            : path.join(UPLOADS_BASE, '..', doc.generated_file_path);
+        if (!fs.existsSync(fullPath)) {
+            return res.status(404).json({ error: 'File not found' });
+        }
+        await sql`UPDATE documents SET download_count = COALESCE(download_count, 0) + 1 WHERE id = ${doc.id}`;
+        const name = `document_${doc.id}.docx`;
+        res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        res.sendFile(path.resolve(fullPath), { maxAge: 0 }, (err) => {
+            if (err && !res.headersSent) res.status(500).json({ error: 'Download failed' });
+        });
+    } catch (err) {
+        console.error('documentDownload error:', err);
+        res.status(500).json({ error: 'Download failed' });
     }
 }
