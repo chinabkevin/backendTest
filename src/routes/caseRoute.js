@@ -1,5 +1,6 @@
 import express from 'express';
 import { 
+    getAllCases,
     registerCase, 
     getClientCases, 
     getFreelancerCases,
@@ -38,6 +39,9 @@ router.post('/test', upload.single('document'), (req, res) => {
 
 // Case registration and management
 router.post('/', upload.single('document'), userExists, registerCase);
+
+// List all cases (admin dashboard) - must be before /:caseId
+router.get('/', getAllCases);
 
 // Specific routes that must come before /:caseId to avoid route conflicts
 router.get('/client/:clientId', getClientCases);

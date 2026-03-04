@@ -402,6 +402,54 @@ export async function createDocumentFromChat(req, res) {
     }
 }
 
+/**
+ * List all documents (admin dashboard).
+ * GET /api/v1/documents/all
+ */
+export async function getAllDocuments(req, res) {
+    try {
+        const rows = await sql`
+            SELECT 
+                d.id,
+                d.user_id,
+                d.template_id,
+                d.template_name,
+                d.generated_document,
+                d.document_type,
+                d.document_fee,
+                d.payment_status,
+                d.download_count,
+                d.status,
+                d.created_at,
+                u.name as user_name,
+                u.email as user_email
+            FROM documents d
+            LEFT JOIN "user" u ON d.user_id = u.id
+            WHERE d.status != 'deleted'
+            ORDER BY d.created_at DESC
+        `;
+        const documents = rows.map((row) => ({
+            id: row.id,
+            user_id: row.user_id,
+            template_id: row.template_id,
+            template_name: row.template_name,
+            generated_document: row.generated_document,
+            document_type: row.document_type,
+            document_fee: row.document_fee,
+            payment_status: row.payment_status,
+            download_count: row.download_count,
+            status: row.status,
+            created_at: row.created_at,
+            user_name: row.user_name,
+            user_email: row.user_email,
+        }));
+        res.json(documents);
+    } catch (error) {
+        console.error('Error fetching all documents:', error);
+        res.status(500).json({ error: 'Failed to fetch documents' });
+    }
+}
+
 // Get documents by user ID
 export async function getUserDocuments(req, res) {
     const { userId } = req.query;

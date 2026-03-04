@@ -284,6 +284,34 @@ export async function registerCase(req, res) {
     }
 }
 
+/**
+ * List all cases (admin dashboard).
+ * GET /api/cases
+ */
+export async function getAllCases(req, res) {
+    try {
+        const cases = await sql`
+            SELECT 
+                c.*,
+                u.name as client_name,
+                u.email as client_email,
+                fl.name as freelancer_name,
+                fl.email as freelancer_email,
+                b.name as barrister_name,
+                b.email as barrister_email
+            FROM "case" c
+            LEFT JOIN "user" u ON c.client_id = u.id
+            LEFT JOIN freelancer fl ON c.freelancer_id = fl.user_id
+            LEFT JOIN barrister b ON c.barrister_id = b.user_id
+            ORDER BY c.created_at DESC
+        `;
+        res.json(cases);
+    } catch (error) {
+        console.error('Error fetching all cases:', error);
+        res.status(500).json({ error: 'Failed to fetch cases' });
+    }
+}
+
 export async function getClientCases(req, res) {
     const { clientId } = req.params;
     try {

@@ -7,6 +7,7 @@ import {
     uploadCaseDocument,
     deleteCaseDocument,
     getDocumentDownloadUrl,
+    getAllDocuments,
     getUserDocuments,
     getDocumentById,
     generateDocument,
@@ -34,6 +35,9 @@ router.post('/preview', previewLimiter, documentPreview);
 
 // Paywall: download only after payment — middleware enforces
 router.get('/download/:id', verifyDocumentPayment, documentDownload);
+
+// Get all documents (admin dashboard) — must be before /user and /:id
+router.get('/all', getAllDocuments);
 
 // Get all documents for a user
 router.get('/user', getUserDocuments);
