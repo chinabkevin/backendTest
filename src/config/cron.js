@@ -1,5 +1,6 @@
 import cron from "cron";
 import https from "https";
+import { runSubscriptionExpiryReminders } from "../services/subscriptionEmailService.js";
 
 const job = new cron.CronJob("*/14 * * * *", function () {
   https
@@ -10,7 +11,23 @@ const job = new cron.CronJob("*/14 * * * *", function () {
     .on("error", (e) => console.error("Error while sending request", e));
 });
 
+// Run every day at 02:00 AM - send subscription expiry reminders (2 days before)
+const subscriptionExpiryJob = new cron.CronJob(
+  "0 2 * * *",
+  async function () {
+    try {
+      const result = await runSubscriptionExpiryReminders();
+      console.log("Subscription expiry reminders sent:", result?.sent ?? 0);
+    } catch (e) {
+      console.error("Subscription expiry job error:", e);
+    }
+  },
+  null,
+  false
+);
+
 export default job;
+export { subscriptionExpiryJob };
 
 
 // CRON JOB EXPLANATION:

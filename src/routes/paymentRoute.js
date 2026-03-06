@@ -4,7 +4,6 @@ import {
   createDocumentCheckoutSession,
   verifyPaymentSession,
   confirmDocumentPayment,
-  handleStripeWebhook,
 } from '../controllers/paymentController.js';
 
 const router = express.Router();
@@ -21,9 +20,6 @@ router.get('/verify/:sessionId', verifyPaymentSession);
 // POST /api/payments/confirm-document-session - Mark document paid and generate file (e.g. when webhook didn't run)
 router.post('/confirm-document-session', confirmDocumentPayment);
 
-// POST /api/payments/webhook - Handle Stripe webhook
-// Note: This endpoint should be raw body, not JSON parsed
-// The express.raw middleware MUST be applied specifically to this route
-router.post('/webhook', express.raw({ type: 'application/json' }), handleStripeWebhook);
+// Webhook is registered in server.js with raw body parser (before express.json())
 
 export default router;

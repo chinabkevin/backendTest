@@ -183,7 +183,7 @@ export const getUserPaymentHistory = async (req, res) => {
   }
 };
 
-// Create a payment record
+// Create a payment record (optionally with platform commission: platformFee, freelancerEarnings, freelancerId, clientId, caseId)
 export const createPaymentRecord = async (paymentData) => {
   try {
     const {
@@ -198,7 +198,12 @@ export const createPaymentRecord = async (paymentData) => {
       status = 'pending',
       serviceType,
       description,
-      metadata = {}
+      metadata = {},
+      platformFee = null,
+      freelancerEarnings = null,
+      freelancerId = null,
+      clientId = null,
+      caseId = null,
     } = paymentData;
     
     const result = await sql`
@@ -214,7 +219,13 @@ export const createPaymentRecord = async (paymentData) => {
         status,
         service_type,
         description,
-        metadata
+        metadata,
+        platform_fee,
+        freelancer_earnings,
+        freelancer_id,
+        client_id,
+        case_id,
+        payment_date
       ) VALUES (
         ${userId},
         ${consultationId},
@@ -227,7 +238,13 @@ export const createPaymentRecord = async (paymentData) => {
         ${status},
         ${serviceType},
         ${description},
-        ${JSON.stringify(metadata)}
+        ${JSON.stringify(metadata)},
+        ${platformFee},
+        ${freelancerEarnings},
+        ${freelancerId},
+        ${clientId ?? userId},
+        ${caseId},
+        NOW()
       ) RETURNING id
     `;
     

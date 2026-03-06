@@ -20,8 +20,10 @@ import { addCaseBarristerSupport } from './add_case_barrister_support.js';
 import { addChatSessionTopic } from './add_chat_session_topic.js';
 import { addFreelancerConsultationFees } from './add_freelancer_consultation_fees.js';
 import { addBarristerValidatedAt } from './add_barrister_validated_at.js';
+import { addBarristerSubscriptionPlanTypes } from './add_barrister_subscription_plan_types.js';
 import { addPaymentFieldsToDocuments } from './add_payment_fields_to_documents.js';
 import { addDocumentPaywallFields } from './add_document_paywall_fields.js';
+import { addPaymentsCommissionFields } from './add_payments_commission_fields.js';
 
 /**
  * Run all migrations in sequence
@@ -117,11 +119,17 @@ async function runMigrations() {
     const barristerValidatedAtResult = await addBarristerValidatedAt();
     console.log('Barrister validated_at migration result:', barristerValidatedAtResult);
 
+    const barristerSubscriptionPlanTypesResult = await addBarristerSubscriptionPlanTypes();
+    console.log('Barrister subscription plan types migration result:', barristerSubscriptionPlanTypesResult);
+
     const paymentFieldsResult = await addPaymentFieldsToDocuments();
     console.log('Payment fields to documents migration result:', paymentFieldsResult);
 
     const documentPaywallResult = await addDocumentPaywallFields();
     console.log('Document paywall fields migration result:', documentPaywallResult);
+
+    const paymentsCommissionResult = await addPaymentsCommissionFields();
+    console.log('Payments commission fields migration result:', paymentsCommissionResult);
     
     // Add future migrations here
     

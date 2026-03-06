@@ -3017,6 +3017,217 @@ export async function markMessagesAsRead(req, res) {
 // ==================== FINANCE/BILLING ====================
 
 /**
+ * Create Stripe Checkout session for barrister subscription (mandatory billing)
+ * POST /api/barrister/create-checkout-session
+ * Body: { planId: '3_months'|'6_months'|'12_months', barristerId: number }
+ */
+const SUBSCRIPTION_PLANS = {
+  '3_months': { amount: 5000, name: 'Basic', duration: '3 Months' },
+  '6_months': { amount: 8000, name: 'Professional', duration: '6 Months' },
+  '12_months': { amount: 12000, name: 'Premium', duration: '12 Months' }
+};
+
+export async function createCheckoutSession(req, res) {
+  try {
+    const { planId, barristerId } = req.body;
+
+    if (!planId || !barristerId) {
+      return res.status(400).json({
+        success: false,
+        error: 'planId and barristerId are required'
+      });
+    }
+
+    const plan = SUBSCRIPTION_PLANS[planId];
+    if (!plan) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid planId. Use 3_months, 6_months, or 12_months'
+      });
+    }
+
+    const parsedBarristerId = parseInt(barristerId, 10);
+    if (Number.isNaN(parsedBarristerId) || parsedBarristerId < 1) {
+      return res.status(400).json({
+        success: false,
+        error: 'barristerId must be a positive integer'
+      });
+    }
+
+    const barrister = await sql`
+      SELECT b.id, b.user_id, u.email, u.name
+      FROM barrister b
+      JOIN "user" u ON u.id = b.user_id
+      WHERE b.id = ${parsedBarristerId}
+      LIMIT 1
+    `;
+
+    if (barrister.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Barrister not found'
+      });
+    }
+
+    const { user_id: userId, email, name } = barrister[0];
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      mode: 'payment',
+      line_items: [
+        {
+          price_data: {
+            currency: 'gbp',
+            unit_amount: plan.amount,
+            product_data: {
+              name: `Advoqat Barrister - ${plan.name} (${plan.duration})`,
+              description: `Subscription for ${plan.duration}`
+            }
+          },
+          quantity: 1
+        }
+      ],
+      customer_email: email,
+      metadata: {
+        planId,
+        userId: String(userId),
+        barristerId: String(barrister[0].id)
+      },
+      success_url: `${frontendUrl}/barrister/dashboard/billing?success=1&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${frontendUrl}/barrister/dashboard/billing?cancelled=1`
+    });
+
+    logger.log('Barrister checkout session created', {
+      barristerId: barrister[0].id,
+      planId,
+      sessionId: session.id
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        checkoutUrl: session.url,
+        sessionId: session.id
+      }
+    });
+  } catch (error) {
+    logger.error('Error creating barrister checkout session:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to create checkout session'
+    });
+  }
+}
+
+/**
+ * Confirm barrister subscription after Stripe redirect (fallback when webhook does not fire).
+ * POST /api/barrister/confirm-subscription
+ * Body: { sessionId: string }
+ * Retrieves session from Stripe and updates barrister_subscription (same as webhook).
+ */
+export async function confirmSubscriptionFromSession(req, res) {
+  try {
+    const { sessionId } = req.body;
+    if (!sessionId || typeof sessionId !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'sessionId is required'
+      });
+    }
+
+    logger.log('Confirming barrister subscription from session', { sessionId });
+
+    const session = await stripe.checkout.sessions.retrieve(sessionId, { expand: [] });
+
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        error: 'Checkout session not found'
+      });
+    }
+
+    if (session.mode !== 'payment' || !session.metadata?.planId || !session.metadata?.userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Not a barrister subscription session'
+      });
+    }
+
+    if (session.payment_status !== 'paid') {
+      return res.status(400).json({
+        success: false,
+        error: 'Payment not completed'
+      });
+    }
+
+    const { handleBarristerCheckoutCompleted } = await import('./stripeWebhookController.js');
+    await handleBarristerCheckoutCompleted(session);
+
+    logger.log('Barrister subscription confirmed from success redirect', { sessionId, userId: session.metadata.userId });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Subscription confirmed',
+      data: { sessionId }
+    });
+  } catch (error) {
+    logger.error('Error confirming barrister subscription from session', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to confirm subscription'
+    });
+  }
+}
+
+/**
+ * Get subscription status for route guard
+ * GET /api/barrister/subscription-status?userId=
+ */
+export async function getSubscriptionStatus(req, res) {
+  try {
+    const { userId } = req.query;
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'userId required' });
+    }
+
+    const user = await sql`
+      SELECT id FROM "user"
+      WHERE supabase_id = ${userId} OR id = ${parseInt(userId, 10)}
+      LIMIT 1
+    `;
+    if (user.length === 0) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    const dbUserId = user[0].id;
+    const subscription = await sql`
+      SELECT plan_type, status, started_at, expires_at
+      FROM barrister_subscription
+      WHERE user_id = ${dbUserId}
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `;
+
+    const sub = subscription[0] || null;
+    const now = new Date();
+    const isActive = sub && sub.status === 'active' && sub.expires_at && new Date(sub.expires_at) > now;
+
+    return res.json({
+      success: true,
+      data: {
+        subscription: sub,
+        isActive: !!isActive,
+        isExpired: sub ? (sub.status !== 'active' || (sub.expires_at && new Date(sub.expires_at) <= now)) : true
+      }
+    });
+  } catch (error) {
+    logger.error('Error fetching subscription status:', error);
+    return res.status(500).json({ success: false, error: 'Failed to fetch subscription status' });
+  }
+}
+
+/**
  * Get billing information
  * GET /api/billing
  */

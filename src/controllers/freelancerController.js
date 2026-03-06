@@ -1,6 +1,7 @@
 import { sql } from "../config/db.js";
 import { createNotification } from "./notificationController.js";
 import { sendLawyerWelcomeEmail, sendCaseAcceptedEmail, sendCaseDeclinedEmail } from "../utils/emailService.js";
+import { calculateFreelancerPayout } from "../utils/commissionCalculator.js";
 import logger from "../utils/logger.js";
 
 export async function registerFreelancer(req, res){
@@ -310,6 +311,101 @@ export async function getFreelancerEarnings(req, res) {
     } catch (error) {
         console.error('Error fetching earnings:', error);
         res.status(500).json({ error: 'Failed to fetch earnings' });
+    }
+}
+
+/** Resolve userId (Supabase UUID or numeric) to numeric DB user id */
+async function resolveFreelancerUserId(userId) {
+    let dbUserId = userId;
+    if (userId.includes('-')) {
+        const user = await sql`SELECT id FROM "user" WHERE supabase_id = ${userId}`;
+        if (!user.length) return null;
+        dbUserId = user[0].id;
+    } else {
+        dbUserId = parseInt(userId, 10);
+        if (isNaN(dbUserId)) return null;
+    }
+    const freelancer = await sql`SELECT user_id FROM freelancer WHERE user_id = ${dbUserId}`;
+    return freelancer.length ? dbUserId : null;
+}
+
+/** GET earnings summary for dashboard widget: total jobs, total client payments, platform fees, your earnings, available for withdrawal */
+export async function getEarningsSummary(req, res) {
+    const { userId } = req.params;
+    try {
+        const dbUserId = await resolveFreelancerUserId(userId);
+        if (dbUserId == null) return res.status(404).json({ error: 'Freelancer not found' });
+
+        const [freelancerRow] = await sql`
+            SELECT total_earnings FROM freelancer WHERE user_id = ${dbUserId}
+        `;
+        const availableForWithdrawal = freelancerRow?.total_earnings ?? 0;
+
+        const [agg] = await sql`
+            SELECT 
+                COUNT(*)::int AS total_jobs_completed,
+                COALESCE(SUM(amount), 0)::bigint AS total_client_payments,
+                COALESCE(SUM(platform_fee), 0)::bigint AS total_platform_fees,
+                COALESCE(SUM(freelancer_earnings), 0)::bigint AS your_earnings
+            FROM payments
+            WHERE freelancer_id = ${dbUserId} AND status = 'completed'
+        `;
+
+        res.json({
+            totalJobsCompleted: agg?.total_jobs_completed ?? 0,
+            totalClientPayments: Number(agg?.total_client_payments ?? 0),
+            totalPlatformFees: Number(agg?.total_platform_fees ?? 0),
+            yourEarnings: Number(agg?.your_earnings ?? 0),
+            availableForWithdrawal: Number(availableForWithdrawal),
+        });
+    } catch (error) {
+        console.error('Error fetching earnings summary:', error);
+        res.status(500).json({ error: 'Failed to fetch earnings summary' });
+    }
+}
+
+/** GET earnings transactions for /freelancer/dashboard/earnings table */
+export async function getEarningsTransactions(req, res) {
+    const { userId } = req.params;
+    try {
+        const dbUserId = await resolveFreelancerUserId(userId);
+        if (dbUserId == null) return res.status(404).json({ error: 'Freelancer not found' });
+
+        const rows = await sql`
+            SELECT 
+                p.id,
+                p.amount,
+                p.platform_fee,
+                p.freelancer_earnings,
+                p.status,
+                p.service_type,
+                p.payment_date,
+                p.case_id,
+                p.consultation_id,
+                c.title AS case_title,
+                u.name AS client_name
+            FROM payments p
+            LEFT JOIN "case" c ON c.id = p.case_id
+            LEFT JOIN "user" u ON u.id = p.client_id
+            WHERE p.freelancer_id = ${dbUserId}
+            ORDER BY p.payment_date DESC NULLS LAST, p.id DESC
+        `;
+
+        const transactions = rows.map((r) => ({
+            id: r.id,
+            jobTitle: r.case_title || (r.consultation_id ? 'Consultation' : r.service_type || 'Payment'),
+            client: r.client_name || '—',
+            amountPaid: Number(r.amount ?? 0),
+            platformFee: Number(r.platform_fee ?? 0),
+            freelancerEarnings: Number(r.freelancer_earnings ?? 0),
+            date: r.payment_date,
+            status: r.status,
+        }));
+
+        res.json({ transactions });
+    } catch (error) {
+        console.error('Error fetching earnings transactions:', error);
+        res.status(500).json({ error: 'Failed to fetch earnings transactions' });
     }
 }
 
@@ -641,9 +737,9 @@ export async function completeCase(req, res) {
         }
         */
         
-        // Calculate case payment (this would be based on case complexity, hours spent, etc.)
-        // For now, using a fixed rate of $150 per case
+        // Case payment (fixed rate; commission applied)
         const casePayment = 15000; // $150.00 in cents
+        const { platformFee, freelancerEarnings } = calculateFreelancerPayout(casePayment);
         
         // Update case status
         const updated = await sql`
@@ -657,17 +753,15 @@ export async function completeCase(req, res) {
             return res.status(500).json({ error: 'Failed to update case status' });
         }
         
-        // Update freelancer earnings
         if (caseItem.freelancer_user_id) {
             await sql`
                 UPDATE freelancer 
-                SET total_earnings = total_earnings + ${casePayment},
+                SET total_earnings = total_earnings + ${freelancerEarnings},
                     updated_at = NOW()
                 WHERE user_id = ${caseItem.freelancer_user_id}
             `;
         }
         
-        // Create payment record for the completed case
         const metadata = JSON.stringify({
             case_id: caseId,
             case_title: caseItem.title
@@ -682,16 +776,28 @@ export async function completeCase(req, res) {
                 status, 
                 service_type, 
                 description, 
-                metadata
+                metadata,
+                platform_fee,
+                freelancer_earnings,
+                freelancer_id,
+                client_id,
+                case_id,
+                payment_date
             ) VALUES (
-                ${caseItem.freelancer_user_id}, 
+                ${caseItem.client_id}, 
                 ${casePayment}, 
                 'usd', 
                 'case_completion', 
                 'completed', 
                 'case_payment', 
                 ${`Payment for completed case: ${caseItem.title}`}, 
-                ${metadata}
+                ${metadata},
+                ${platformFee},
+                ${freelancerEarnings},
+                ${caseItem.freelancer_user_id},
+                ${caseItem.client_id},
+                ${caseId},
+                NOW()
             )
         `;
         

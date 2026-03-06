@@ -12,6 +12,7 @@ import consultationRoute from './routes/consultationRoute.js';
 import documentRoute from './routes/documentRoute.js';
 import aiAssistantRoute from './routes/aiAssistantRoute.js';
 import paymentRoute from './routes/paymentRoute.js';
+import { handleStripeWebhook } from './controllers/paymentController.js';
 import paymentHistoryRoute from './routes/paymentHistoryRoute.js';
 import profileRoute from './routes/profileRoute.js';
 import notificationRoute from './routes/notificationRoute.js';
@@ -22,15 +23,17 @@ import clientCareRoute from './routes/clientCareRoute.js';
 import messageRoute from './routes/messageRoute.js';
 import billingRoute from './routes/billingRoute.js';
 import resourceRoute from './routes/resourceRoute.js';
-import job from './config/cron.js';
+import stripeRoute from './routes/stripeRoute.js';
+import job, { subscriptionExpiryJob } from './config/cron.js';
 import logger from './utils/logger.js';
 
 dotenv.config();
 
 const app = express();
 
-if(process.env.NODE_ENV === 'production'){
+if (process.env.NODE_ENV === 'production') {
   job.start();
+  subscriptionExpiryJob.start();
 }
 
 // Allow CORS for frontend
@@ -74,15 +77,13 @@ app.use(cookieParser());
 
 app.use(rateLimiter);
 
-// Create a router just for the Stripe webhook endpoint with raw body parsing
+// Stripe webhook MUST use raw body - register handler here so it runs before express.json()
 const stripeWebhookRouter = express.Router();
-stripeWebhookRouter.post('/webhook', express.raw({ type: 'application/json' }), (req, res, next) => {
-  // This endpoint receives the raw body before any JSON parsing
-  next();
-});
+stripeWebhookRouter.post('/webhook', express.raw({ type: 'application/json' }), handleStripeWebhook);
 
-// Register the Stripe webhook route BEFORE the JSON body parser
+// Register the Stripe webhook routes BEFORE the JSON body parser
 app.use('/api/payments', stripeWebhookRouter);
+app.use('/api/stripe', stripeRoute);
 
 // JSON body parser for all other routes
 app.use(express.json());

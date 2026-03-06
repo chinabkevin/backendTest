@@ -258,6 +258,72 @@ export const sendCaseDeclinedEmail = async (email, name, caseTitle) => {
 };
 
 /**
+ * Send subscription thank-you email after successful barrister subscription payment
+ * @param {string} email - Recipient email
+ * @param {string} name - Barrister name
+ * @param {string} planName - Plan display name (e.g. "Professional (6 Months)")
+ * @param {string} startDate - Formatted start date
+ * @param {string} endDate - Formatted end date
+ * @returns {Promise<Object>} - Email sending result
+ */
+export const sendSubscriptionThankYouEmail = async (email, name, planName, startDate, endDate) => {
+  try {
+    const subject = 'Thank You for Subscribing to Barrister Platform';
+    const htmlContent = await loadTemplate('subscriptionThankYou', {
+      name: name || 'Barrister',
+      planName: planName || 'Subscription',
+      startDate: startDate || '',
+      endDate: endDate || '',
+      year: new Date().getFullYear().toString()
+    });
+
+    return await sendEmail({
+      to: email,
+      subject,
+      htmlContent
+    });
+  } catch (error) {
+    logger.error('Error sending subscription thank-you email:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to send email'
+    };
+  }
+};
+
+/**
+ * Send subscription expiry reminder (2 days before expiration)
+ * @param {string} email - Recipient email
+ * @param {string} name - Barrister name
+ * @param {string} expiryDate - Formatted expiration date
+ * @param {string} billingUrl - Link to billing page
+ * @returns {Promise<Object>} - Email sending result
+ */
+export const sendSubscriptionExpiryReminderEmail = async (email, name, expiryDate, billingUrl) => {
+  try {
+    const subject = 'Your Barrister Subscription Expires in 2 Days';
+    const htmlContent = await loadTemplate('subscriptionExpiryReminder', {
+      name: name || 'Barrister',
+      expiryDate: expiryDate || '',
+      billingUrl: billingUrl || '',
+      year: new Date().getFullYear().toString()
+    });
+
+    return await sendEmail({
+      to: email,
+      subject,
+      htmlContent
+    });
+  } catch (error) {
+    logger.error('Error sending subscription expiry reminder email:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to send email'
+    };
+  }
+};
+
+/**
  * Send case assigned email notification to lawyer/freelancer
  * @param {string} email - Recipient email
  * @param {string} name - Recipient name

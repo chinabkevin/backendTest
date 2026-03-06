@@ -283,11 +283,25 @@ export const handleStripeWebhook = async (req, res) => {
     );
 
     // Handle the event based on its type
+    console.log('[Stripe webhook] Event type:', event.type);
     switch (event.type) {
-      case 'checkout.session.completed':
-        // Payment was successful
-        await handleCompletedCheckout(event.data.object);
+      case 'checkout.session.completed': {
+        const session = event.data.object;
+        // Barrister subscription (one-time payment with planId) → update barrister_subscription
+        if (session.metadata?.planId && session.mode === 'payment') {
+          console.log('[Stripe webhook] Barrister subscription payment detected, updating barrister_subscription', {
+            planId: session.metadata.planId,
+            userId: session.metadata.userId,
+          });
+          const { handleBarristerCheckoutCompleted } = await import('./stripeWebhookController.js');
+          await handleBarristerCheckoutCompleted(session);
+          console.log('[Stripe webhook] Barrister subscription updated successfully');
+          return res.json({ received: true });
+        }
+        // Consultation or document payment
+        await handleCompletedCheckout(session);
         break;
+      }
         
       case 'payment_intent.payment_failed':
         // Payment failed
@@ -312,89 +326,97 @@ export const handleStripeWebhook = async (req, res) => {
 // Handle successful checkout completion
 const handleCompletedCheckout = async (session) => {
   try {
-    const { consultationId, documentId, userId } = session.metadata;
+    const { consultationId, documentId, userId } = session.metadata || {};
     
-    // Create payment record
     const { createPaymentRecord } = await import('./paymentHistoryController.js');
+    const { calculateFreelancerPayout } = await import('../utils/commissionCalculator.js');
     
-    // Validate userId
-    const parsedUserId = parseInt(userId)
+    const parsedUserId = parseInt(userId, 10);
     if (isNaN(parsedUserId)) {
-      console.error('Invalid userId in session metadata:', userId)
-      return
+      console.error('Invalid userId in session metadata:', userId);
+      return;
     }
 
-    const paymentData = {
+    const totalAmount = session.amount_total || 0;
+    const isConsultation = consultationId != null;
+    let paymentData = {
       userId: parsedUserId,
-      consultationId: consultationId ? parseInt(consultationId) : null,
-      documentId: documentId ? parseInt(documentId) : null,
+      consultationId: consultationId ? parseInt(consultationId, 10) : null,
+      documentId: documentId ? parseInt(documentId, 10) : null,
       stripeSessionId: session.id,
       stripePaymentIntentId: session.payment_intent,
-      amount: session.amount_total,
-      currency: session.currency,
+      amount: totalAmount,
+      currency: session.currency || 'gbp',
       paymentMethod: 'card',
       status: 'completed',
-      serviceType: consultationId ? 'consultation' : 'document_download',
-      description: consultationId 
-        ? `Legal consultation payment` 
-        : `Document download payment`,
-      metadata: session.metadata
+      serviceType: isConsultation ? 'consultation' : 'document_download',
+      description: isConsultation ? 'Legal consultation payment' : 'Document download payment',
+      metadata: session.metadata || {},
     };
-    
+
+    if (isConsultation) {
+      const consultationResult = await sql`
+        SELECT c.*, f.user_id as freelancer_user_id, f.name as freelancer_name, f.id as freelancer_table_id,
+               u.supabase_id as client_supabase_id
+        FROM consultations c
+        LEFT JOIN freelancer f ON c.freelancer_id = f.id
+        LEFT JOIN "user" u ON c.client_id = u.id
+        WHERE c.id = ${parseInt(consultationId, 10)}
+      `;
+      const consultation = consultationResult[0];
+      if (consultation) {
+        const { platformFee, freelancerEarnings } = calculateFreelancerPayout(totalAmount);
+        paymentData = {
+          ...paymentData,
+          platformFee,
+          freelancerEarnings,
+          freelancerId: consultation.freelancer_user_id,
+          clientId: parsedUserId,
+        };
+        await sql`
+          UPDATE freelancer
+          SET total_earnings = total_earnings + ${freelancerEarnings}, updated_at = NOW()
+          WHERE user_id = ${consultation.freelancer_user_id}
+        `;
+      }
+    }
+
     await createPaymentRecord(paymentData);
     console.log('Payment record created for session:', session.id);
     
     if (consultationId) {
-      // Handle consultation payment
       const { updateConsultationPayment } = await import('./consultationController.js');
-      
-      await updateConsultationPayment(consultationId, {
+      await updateConsultationPayment(parseInt(consultationId, 10), {
         paymentStatus: 'paid',
         paymentId: session.id,
-        paymentAmount: session.amount_total,
+        paymentAmount: totalAmount,
       });
 
-      // Get consultation details for notifications
       const consultationResult = await sql`
         SELECT c.*, f.user_id as freelancer_user_id, f.name as freelancer_name, u.supabase_id as client_supabase_id
         FROM consultations c
         LEFT JOIN freelancer f ON c.freelancer_id = f.id
         LEFT JOIN "user" u ON c.client_id = u.id
-        WHERE c.id = ${consultationId}
+        WHERE c.id = ${parseInt(consultationId, 10)}
       `;
 
       if (consultationResult.length > 0) {
         const consultation = consultationResult[0];
-        
-        // Create notification for the freelancer
         await createNotification(
           consultation.freelancer_user_id,
           'payment_received',
           'Payment Received',
-          `You have received a payment of $${(session.amount_total / 100).toFixed(2)} for consultation scheduled on ${new Date(consultation.scheduled_at).toLocaleDateString()}.`,
-          { 
-            consultation_id: consultationId,
-            amount: session.amount_total,
-            payment_id: session.id,
-            scheduled_at: consultation.scheduled_at
-          }
+          `You have received a payment (after 15% platform fee) for consultation on ${new Date(consultation.scheduled_at).toLocaleDateString()}.`,
+          { consultation_id: consultationId, amount: totalAmount, payment_id: session.id, scheduled_at: consultation.scheduled_at }
         );
-
-        // Create notification for the client
         await createNotification(
           consultation.client_supabase_id,
           'payment_completed',
           'Payment Completed',
-          `Your payment of $${(session.amount_total / 100).toFixed(2)} for consultation with ${consultation.freelancer_name} has been processed successfully.`,
-          { 
-            consultation_id: consultationId,
-            amount: session.amount_total,
-            payment_id: session.id,
-            freelancer_name: consultation.freelancer_name
-          }
+          `Your payment for consultation with ${consultation.freelancer_name} has been processed successfully.`,
+          { consultation_id: consultationId, amount: totalAmount, payment_id: session.id, freelancer_name: consultation.freelancer_name }
         );
       }
-
       console.log(`Payment confirmed for consultation ${consultationId}`);
     } else if (documentId) {
       // Handle document payment: mark paid, then generate Word and store path

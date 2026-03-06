@@ -29,7 +29,10 @@ import {
   getBilling,
   getResources,
   getBarristerAnalytics,
-  syncBarristers
+  syncBarristers,
+  createCheckoutSession,
+  getSubscriptionStatus,
+  confirmSubscriptionFromSession
 } from '../controllers/barristerController.js';
 import { uploadBarrister } from '../utils/fileUpload.js';
 
@@ -91,6 +94,9 @@ router.post('/messages/send', sendMessage);
 
 // Billing
 router.get('/billing', getBilling);
+router.get('/subscription-status', getSubscriptionStatus);
+router.post('/create-checkout-session', createCheckoutSession);
+router.post('/confirm-subscription', confirmSubscriptionFromSession);
 
 // Resources
 router.get('/resources/list', getResources);
