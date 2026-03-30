@@ -1,5 +1,11 @@
 import { sql } from '../config/db.js';
 import { createNotification } from './notificationController.js';
+import { hasAcceptedEngagement } from '../services/engagementService.js';
+import { ENGAGEMENT_LETTER_VERSION } from './engagementController.js';
+import {
+  hasAcceptedBarristerEngagement,
+  BARRISTER_ENGAGEMENT_VERSION,
+} from '../services/barristerEngagementService.js';
 import { sendDocumentUploadConfirmation, sendBarristerWelcomeEmail } from '../utils/emailService.js';
 import { uploadToCloudinary } from '../utils/fileUpload.js';
 import logger from '../utils/logger.js';
@@ -2782,6 +2788,43 @@ export async function sendMessage(req, res) {
     } else {
       // It's a database ID (from freelancer.user_id, which is the same as user.id)
       dbReceiverId = parseInt(receiverId);
+    }
+
+    const receiverIsLawyer = await sql`
+      SELECT 1 FROM freelancer WHERE user_id = ${dbReceiverId} LIMIT 1
+    `;
+    if (receiverIsLawyer.length) {
+      const engaged = await hasAcceptedEngagement(
+        dbSenderId,
+        dbReceiverId,
+        ENGAGEMENT_LETTER_VERSION
+      );
+      if (!engaged) {
+        return res.status(403).json({
+          success: false,
+          error: 'ENGAGEMENT_REQUIRED',
+          message: 'Please accept the Lawyer Engagement Letter before messaging this lawyer.',
+        });
+      }
+    }
+
+    const receiverIsBarrister = await sql`
+      SELECT 1 FROM barrister WHERE user_id = ${dbReceiverId} LIMIT 1
+    `;
+    if (receiverIsBarrister.length) {
+      const engagedBarrister = await hasAcceptedBarristerEngagement(
+        dbSenderId,
+        dbReceiverId,
+        BARRISTER_ENGAGEMENT_VERSION
+      );
+      if (!engagedBarrister) {
+        return res.status(403).json({
+          success: false,
+          error: 'BARRISTER_ENGAGEMENT_REQUIRED',
+          message:
+            'Please accept the Barrister Engagement Letter (Public Access) before messaging this barrister.',
+        });
+      }
     }
 
     const message = await sql`

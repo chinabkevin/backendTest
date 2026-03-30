@@ -1,5 +1,7 @@
 import { sql } from "../config/db.js";
 import { createNotification } from "./notificationController.js";
+import { hasAcceptedEngagement } from "../services/engagementService.js";
+import { ENGAGEMENT_LETTER_VERSION } from "./engagementController.js";
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -656,6 +658,18 @@ export const bookConsultation = async (req, res) => {
       const freelancerRecord = await resolveFreelancerRecord(lawyerId);
       if (!freelancerRecord || freelancerRecord.is_available !== true) {
         return res.status(404).json({ error: 'Lawyer not found or not available' });
+      }
+
+      const engagementOk = await hasAcceptedEngagement(
+        clientDbId,
+        freelancerRecord.user_id,
+        ENGAGEMENT_LETTER_VERSION
+      );
+      if (!engagementOk) {
+        return res.status(403).json({
+          error: 'ENGAGEMENT_REQUIRED',
+          message: 'Please accept the Lawyer Engagement Letter before booking a consultation.',
+        });
       }
       
       // If caseId is provided, verify it belongs to the user

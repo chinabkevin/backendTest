@@ -2,6 +2,8 @@ import stripe from '../config/stripe.js';
 import { sql } from '../config/db.js';
 import { createNotification } from './notificationController.js';
 import dotenv from 'dotenv';
+import { hasAcceptedEngagement } from '../services/engagementService.js';
+import { ENGAGEMENT_LETTER_VERSION } from './engagementController.js';
 
 dotenv.config();
 
@@ -24,6 +26,29 @@ export const createCheckoutSession = async (req, res) => {
     
     if (user.length === 0) {
       return res.status(404).json({ error: 'User not found' });
+    }
+
+    const consultationRows = await sql`
+      SELECT c.client_id, f.user_id AS lawyer_user_id
+      FROM consultations c
+      JOIN freelancer f ON c.freelancer_id = f.id
+      WHERE c.id = ${consultationId}
+      LIMIT 1
+    `;
+    if (!consultationRows.length) {
+      return res.status(404).json({ success: false, message: 'Consultation not found' });
+    }
+    const { client_id: consClientId, lawyer_user_id: consLawyerUserId } = consultationRows[0];
+    if (consClientId !== user[0].id) {
+      return res.status(403).json({ success: false, message: 'Not allowed for this consultation' });
+    }
+    const engagementPaid = await hasAcceptedEngagement(consClientId, consLawyerUserId, ENGAGEMENT_LETTER_VERSION);
+    if (!engagementPaid) {
+      return res.status(403).json({
+        success: false,
+        message: 'ENGAGEMENT_REQUIRED',
+        error: 'Please accept the Lawyer Engagement Letter before payment.',
+      });
     }
 
     // Format the price for display (assumes fee is in the smallest currency unit, e.g., cents)

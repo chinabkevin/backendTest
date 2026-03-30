@@ -19,8 +19,12 @@ import notificationRoute from './routes/notificationRoute.js';
 import contactRoute from './routes/contactRoute.js';
 import authRoute from './routes/authRoute.js';
 import barristerRoute from './routes/barristerRoute.js';
+import barristerEngagementRoute from './routes/barristerEngagementRoute.js';
 import clientCareRoute from './routes/clientCareRoute.js';
 import messageRoute from './routes/messageRoute.js';
+import engagementRoute from './routes/engagementRoute.js';
+import lawyerDeclarationRoute from './routes/lawyerDeclarationRoute.js';
+import adminOnboardingRoute from './routes/adminOnboardingRoute.js';
 import billingRoute from './routes/billingRoute.js';
 import resourceRoute from './routes/resourceRoute.js';
 import stripeRoute from './routes/stripeRoute.js';
@@ -110,10 +114,14 @@ app.use('/api/payment-history', paymentHistoryRoute);
 app.use('/api/profile', profileRoute);
 app.use('/api/notifications', notificationRoute);
 app.use('/api/contact', contactRoute);
+app.use('/api/barrister/engagement', barristerEngagementRoute);
 app.use('/api/barrister', barristerRoute);
 app.use('/api/barristers', barristerRoute); // Legacy support
 app.use('/api/client-care', clientCareRoute);
 app.use('/api/messages', messageRoute);
+app.use('/api/engagement', engagementRoute);
+app.use('/api/lawyer', lawyerDeclarationRoute);
+app.use('/api/admin', adminOnboardingRoute);
 app.use('/api/billing', billingRoute);
 app.use('/api/resources', resourceRoute);
 

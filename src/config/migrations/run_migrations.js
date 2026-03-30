@@ -24,6 +24,9 @@ import { addBarristerSubscriptionPlanTypes } from './add_barrister_subscription_
 import { addPaymentFieldsToDocuments } from './add_payment_fields_to_documents.js';
 import { addDocumentPaywallFields } from './add_document_paywall_fields.js';
 import { addPaymentsCommissionFields } from './add_payments_commission_fields.js';
+import { addLawyerEngagementAcceptances } from './add_lawyer_engagement_acceptances.js';
+import { addLawyerDeclarations } from './add_lawyer_declarations.js';
+import { addBarristerEngagementAcceptances } from './add_barrister_engagement_acceptances.js';
 
 /**
  * Run all migrations in sequence
@@ -130,6 +133,15 @@ async function runMigrations() {
 
     const paymentsCommissionResult = await addPaymentsCommissionFields();
     console.log('Payments commission fields migration result:', paymentsCommissionResult);
+
+    const lawyerEngagementResult = await addLawyerEngagementAcceptances();
+    console.log('Lawyer engagement acceptances migration result:', lawyerEngagementResult);
+
+    const lawyerDeclarationsResult = await addLawyerDeclarations();
+    console.log('Lawyer declarations migration result:', lawyerDeclarationsResult);
+
+    const barristerEngagementResult = await addBarristerEngagementAcceptances();
+    console.log('Barrister engagement acceptances migration result:', barristerEngagementResult);
     
     // Add future migrations here
     
