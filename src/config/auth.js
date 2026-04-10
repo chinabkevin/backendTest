@@ -27,7 +27,7 @@ export async function syncUserToDatabase(userData) {
       WHERE supabase_id = ${userData.id}`;
     
     if (dbUser.length > 0) {
-      // User exists, update their information
+      // User exists by Google id, update their information
       dbUser = await sql`
         UPDATE "user" 
         SET email = ${userData.email}, 
@@ -37,12 +37,29 @@ export async function syncUserToDatabase(userData) {
         RETURNING id, supabase_id, email, name, role, created_at, updated_at`;
       console.log('[Auth] User updated:', dbUser[0]);
     } else {
-      // User doesn't exist, create new user
-      dbUser = await sql`
-        INSERT INTO "user" (supabase_id, email, name)
-        VALUES (${userData.id}, ${userData.email}, ${userData.name || ''})
-        RETURNING id, supabase_id, email, name, role, created_at, updated_at`;
-      console.log('[Auth] User created:', dbUser[0]);
+      // Same email may already exist (e.g. email/password) with a different supabase_id
+      const byEmail = await sql`
+        SELECT id, supabase_id, email, name, role, created_at, updated_at
+        FROM "user"
+        WHERE LOWER(TRIM(email)) = LOWER(TRIM(${userData.email}))`;
+
+      if (byEmail.length > 0) {
+        dbUser = await sql`
+          UPDATE "user"
+          SET supabase_id = ${userData.id},
+              email = ${userData.email},
+              name = COALESCE(${userData.name}, name),
+              updated_at = NOW()
+          WHERE id = ${byEmail[0].id}
+          RETURNING id, supabase_id, email, name, role, created_at, updated_at`;
+        console.log('[Auth] Linked existing user to Google account:', dbUser[0]);
+      } else {
+        dbUser = await sql`
+          INSERT INTO "user" (supabase_id, email, name)
+          VALUES (${userData.id}, ${userData.email}, ${userData.name || ''})
+          RETURNING id, supabase_id, email, name, role, created_at, updated_at`;
+        console.log('[Auth] User created:', dbUser[0]);
+      }
     }
     
     return dbUser.length > 0 ? dbUser[0] : null

@@ -23,11 +23,17 @@ router.get('/api/auth/signin/google', (req, res) => {
 
 // Google OAuth callback endpoint
 router.get('/api/auth/callback/google', async (req, res) => {
+  const frontendBase = process.env.FRONTEND_URL || 'http://localhost:3000'
+
   try {
-    const { code } = req.query
-    
+    const { code, error: oauthError } = req.query
+
+    if (oauthError === 'access_denied') {
+      return res.redirect(`${frontendBase}/auth/error?code=denied`)
+    }
+
     if (!code) {
-      return res.status(400).json({ error: 'Authorization code not provided' })
+      return res.redirect(`${frontendBase}/auth/error?code=oauth`)
     }
 
     // Exchange code for access token
@@ -84,7 +90,7 @@ router.get('/api/auth/callback/google', async (req, res) => {
       console.log('[OAuth] Frontend URL:', process.env.FRONTEND_URL || 'http://localhost:3000')
       
       // Redirect to frontend dashboard with token
-      const redirectUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard?token=${encodeURIComponent(token)}`
+      const redirectUrl = `${frontendBase}/dashboard?token=${encodeURIComponent(token)}`
       console.log('[OAuth] Redirecting to:', redirectUrl)
       
       res.redirect(redirectUrl)
@@ -93,7 +99,14 @@ router.get('/api/auth/callback/google', async (req, res) => {
     }
   } catch (error) {
     console.error('OAuth callback error:', error)
-    res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/error`)
+    const msg = error instanceof Error ? error.message : ''
+    const code =
+      msg.includes('access token') || msg.includes('token')
+        ? 'token'
+        : msg.includes('sync') || msg.includes('Failed to sync')
+          ? 'sync'
+          : 'oauth'
+    res.redirect(`${frontendBase}/auth/error?code=${encodeURIComponent(code)}`)
   }
 })
 
